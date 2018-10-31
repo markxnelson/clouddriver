@@ -27,7 +27,7 @@ class CreateLoadBalancerDescription extends AbstractOracleCredentialsDescription
   Map<String, ListenerDetails> listeners
   Map<String, CertificateDetails> certificates
   Map<String, BackendSetDetails> backendSets
-  String loadBalancerId //TODO UpdateRequest comes with id
+  String loadBalancerId 
   
   String clusterName() {
     application + (stack? '-' + stack : '')

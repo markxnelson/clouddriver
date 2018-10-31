@@ -19,8 +19,24 @@ import com.netflix.spinnaker.clouddriver.oracle.security.OracleNamedAccountCrede
 import com.netflix.spinnaker.clouddriver.security.AccountCredentialsProvider
 import com.oracle.bmc.loadbalancer.LoadBalancerClient
 import com.oracle.bmc.loadbalancer.model.CreateLoadBalancerDetails
+import com.oracle.bmc.loadbalancer.model.BackendDetails
+import com.oracle.bmc.loadbalancer.model.BackendSet
+import com.oracle.bmc.loadbalancer.model.BackendSetDetails
+import com.oracle.bmc.loadbalancer.model.CreateBackendSetDetails
+import com.oracle.bmc.loadbalancer.model.HealthCheckerDetails
+import com.oracle.bmc.loadbalancer.model.ListenerDetails
+import com.oracle.bmc.loadbalancer.model.LoadBalancer
+import com.oracle.bmc.loadbalancer.model.UpdateBackendSetDetails
+import com.oracle.bmc.loadbalancer.model.UpdateListenerDetails
+import com.oracle.bmc.loadbalancer.requests.CreateBackendSetRequest
 import com.oracle.bmc.loadbalancer.requests.CreateLoadBalancerRequest
+import com.oracle.bmc.loadbalancer.requests.DeleteBackendSetRequest
+import com.oracle.bmc.loadbalancer.requests.UpdateBackendSetRequest
+import com.oracle.bmc.loadbalancer.responses.CreateBackendSetResponse
 import com.oracle.bmc.loadbalancer.responses.CreateLoadBalancerResponse
+import com.oracle.bmc.loadbalancer.responses.DeleteBackendSetResponse
+import com.oracle.bmc.loadbalancer.responses.GetLoadBalancerResponse
+import com.oracle.bmc.loadbalancer.responses.UpdateBackendSetResponse
 import spock.lang.Shared
 import spock.lang.Specification
 
@@ -112,6 +128,58 @@ class CreateOracleLoadBalancerAtomicOperationSpec extends Specification {
     }
     1 * OracleWorkRequestPoller.poll("wr1", _, _, loadBalancerClient) >> null
   }
+
+  def "Update LoadBalancer with BackendSets"() {
+    setup:
+    def loadBalancerId = 'updateLoadBalancerBackendSets';
+    def req = read('updateLoadBalancerBackendSets.json')
+    def desc = converter.convertDescription(req[0].upsertLoadBalancer)
+
+    def creds = Mock(OracleNamedAccountCredentials)
+    def loadBalancerClient = Mock(LoadBalancerClient)
+    creds.loadBalancerClient >> loadBalancerClient
+    desc.credentials = creds
+
+    GroovySpy(OracleWorkRequestPoller, global: true)
+
+    TaskRepository.threadLocalTask.set(Mock(Task))
+    def op = new CreateOracleLoadBalancerAtomicOperation(desc)
+    def backendSets = [ 
+      // to be removed
+      'myBackendSet0': BackendSet.builder().name('myBackendSet0').backends([]).build(), 
+      // to be updated
+      'myBackendSet1': BackendSet.builder().name('myBackendSet1').backends([]).build(), 
+    ]
+
+    when:
+    op.operate(null)
+
+    then:
+    1 * loadBalancerClient.getLoadBalancer(_) >> 
+      GetLoadBalancerResponse.builder().loadBalancer(LoadBalancer.builder().id(loadBalancerId).backendSets(backendSets).build()).build()
+    1 * loadBalancerClient.deleteBackendSet(_) >> { args ->
+      DeleteBackendSetRequest delBksReq = args[0]
+      assert delBksReq.getLoadBalancerId() == loadBalancerId
+      assert delBksReq.getBackendSetName() == 'myBackendSet0'
+      DeleteBackendSetResponse.builder().opcWorkRequestId("wr0").build()
+    }
+    1 * OracleWorkRequestPoller.poll("wr0", _, _, loadBalancerClient) >> null
+    1 * loadBalancerClient.updateBackendSet(_) >> { args ->
+      UpdateBackendSetRequest upBksReq = args[0]
+      assert upBksReq.getLoadBalancerId() == loadBalancerId
+      assert upBksReq.getBackendSetName() == 'myBackendSet1'
+      UpdateBackendSetResponse.builder().opcWorkRequestId("wr1").build()
+    }
+    1 * OracleWorkRequestPoller.poll("wr1", _, _, loadBalancerClient) >> null
+    1 * loadBalancerClient.createBackendSet(_) >> { args ->
+      CreateBackendSetRequest crBksReq = args[0]
+      assert crBksReq.getLoadBalancerId() == loadBalancerId
+      assert crBksReq.getCreateBackendSetDetails().getName() == 'myBackendSet2'
+      CreateBackendSetResponse.builder().opcWorkRequestId("wr2").build()
+    }
+    1 * OracleWorkRequestPoller.poll("wr2", _, _, loadBalancerClient) >> null
+  }
+  
 
   def read(String fileName) {
     def json = new File(getClass().getResource('/desc/' + fileName).toURI()).text
