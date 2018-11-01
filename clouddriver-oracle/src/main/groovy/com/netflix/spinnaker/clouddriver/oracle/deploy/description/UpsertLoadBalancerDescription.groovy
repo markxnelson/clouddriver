@@ -15,7 +15,7 @@ import com.oracle.bmc.loadbalancer.model.ListenerDetails
 import groovy.transform.ToString
 
 @ToString
-class CreateLoadBalancerDescription extends AbstractOracleCredentialsDescription implements ApplicationNameable {
+class UpsertLoadBalancerDescription extends AbstractOracleCredentialsDescription implements ApplicationNameable {
 
   String application
   String stack

@@ -13,11 +13,12 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.netflix.spinnaker.clouddriver.data.task.Task
 import com.netflix.spinnaker.clouddriver.data.task.TaskRepository
 import com.netflix.spinnaker.clouddriver.oracle.deploy.OracleWorkRequestPoller
-import com.netflix.spinnaker.clouddriver.oracle.deploy.converter.CreateOracleLoadBalancerAtomicOperationConverter
-import com.netflix.spinnaker.clouddriver.oracle.deploy.description.CreateLoadBalancerDescription
+import com.netflix.spinnaker.clouddriver.oracle.deploy.converter.UpsertOracleLoadBalancerAtomicOperationConverter
+import com.netflix.spinnaker.clouddriver.oracle.deploy.description.UpsertLoadBalancerDescription
 import com.netflix.spinnaker.clouddriver.oracle.security.OracleNamedAccountCredentials
 import com.netflix.spinnaker.clouddriver.security.AccountCredentialsProvider
 import com.oracle.bmc.loadbalancer.LoadBalancerClient
+import com.oracle.bmc.loadbalancer.model.Certificate
 import com.oracle.bmc.loadbalancer.model.CreateLoadBalancerDetails
 import com.oracle.bmc.loadbalancer.model.BackendDetails
 import com.oracle.bmc.loadbalancer.model.BackendSet
@@ -29,27 +30,31 @@ import com.oracle.bmc.loadbalancer.model.LoadBalancer
 import com.oracle.bmc.loadbalancer.model.UpdateBackendSetDetails
 import com.oracle.bmc.loadbalancer.model.UpdateListenerDetails
 import com.oracle.bmc.loadbalancer.requests.CreateBackendSetRequest
+import com.oracle.bmc.loadbalancer.requests.CreateCertificateRequest
 import com.oracle.bmc.loadbalancer.requests.CreateLoadBalancerRequest
 import com.oracle.bmc.loadbalancer.requests.DeleteBackendSetRequest
+import com.oracle.bmc.loadbalancer.requests.DeleteCertificateRequest
 import com.oracle.bmc.loadbalancer.requests.UpdateBackendSetRequest
 import com.oracle.bmc.loadbalancer.responses.CreateBackendSetResponse
+import com.oracle.bmc.loadbalancer.responses.CreateCertificateResponse
 import com.oracle.bmc.loadbalancer.responses.CreateLoadBalancerResponse
 import com.oracle.bmc.loadbalancer.responses.DeleteBackendSetResponse
+import com.oracle.bmc.loadbalancer.responses.DeleteCertificateResponse
 import com.oracle.bmc.loadbalancer.responses.GetLoadBalancerResponse
 import com.oracle.bmc.loadbalancer.responses.UpdateBackendSetResponse
 import spock.lang.Shared
 import spock.lang.Specification
 
-class CreateOracleLoadBalancerAtomicOperationSpec extends Specification {
+class UpsertOracleLoadBalancerAtomicOperationSpec extends Specification {
   
   @Shared
   ObjectMapper mapper = new ObjectMapper()
 
   @Shared
-  CreateOracleLoadBalancerAtomicOperationConverter converter
+  UpsertOracleLoadBalancerAtomicOperationConverter converter
 
   def setupSpec() {
-    this.converter = new CreateOracleLoadBalancerAtomicOperationConverter(objectMapper: mapper)
+    this.converter = new UpsertOracleLoadBalancerAtomicOperationConverter(objectMapper: mapper)
     converter.accountCredentialsProvider = Mock(AccountCredentialsProvider)
     converter.accountCredentialsProvider.getCredentials(_) >> Mock(OracleNamedAccountCredentials)
   }
@@ -67,7 +72,7 @@ class CreateOracleLoadBalancerAtomicOperationSpec extends Specification {
     GroovySpy(OracleWorkRequestPoller, global: true)
 
     TaskRepository.threadLocalTask.set(Mock(Task))
-    def op = new CreateOracleLoadBalancerAtomicOperation(desc)
+    def op = new UpsertOracleLoadBalancerAtomicOperation(desc)
 
     when:
     op.operate(null)
@@ -106,7 +111,7 @@ class CreateOracleLoadBalancerAtomicOperationSpec extends Specification {
     GroovySpy(OracleWorkRequestPoller, global: true)
 
     TaskRepository.threadLocalTask.set(Mock(Task))
-    def op = new CreateOracleLoadBalancerAtomicOperation(desc)
+    def op = new UpsertOracleLoadBalancerAtomicOperation(desc)
 
     when:
     op.operate(null)
@@ -143,7 +148,7 @@ class CreateOracleLoadBalancerAtomicOperationSpec extends Specification {
     GroovySpy(OracleWorkRequestPoller, global: true)
 
     TaskRepository.threadLocalTask.set(Mock(Task))
-    def op = new CreateOracleLoadBalancerAtomicOperation(desc)
+    def op = new UpsertOracleLoadBalancerAtomicOperation(desc)
     def backendSets = [ 
       // to be removed
       'myBackendSet0': BackendSet.builder().name('myBackendSet0').backends([]).build(), 
@@ -176,6 +181,50 @@ class CreateOracleLoadBalancerAtomicOperationSpec extends Specification {
       assert crBksReq.getLoadBalancerId() == loadBalancerId
       assert crBksReq.getCreateBackendSetDetails().getName() == 'myBackendSet2'
       CreateBackendSetResponse.builder().opcWorkRequestId("wr2").build()
+    }
+    1 * OracleWorkRequestPoller.poll("wr2", _, _, loadBalancerClient) >> null
+  }
+
+  def "Update LoadBalancer with Certificates"() {
+    setup:
+    def loadBalancerId = 'updateLoadBalancerCerts';
+    def req = read('updateLoadBalancerCerts.json')
+    def desc = converter.convertDescription(req[0].upsertLoadBalancer)
+
+    def creds = Mock(OracleNamedAccountCredentials)
+    def loadBalancerClient = Mock(LoadBalancerClient)
+    creds.loadBalancerClient >> loadBalancerClient
+    desc.credentials = creds
+
+    GroovySpy(OracleWorkRequestPoller, global: true)
+
+    TaskRepository.threadLocalTask.set(Mock(Task))
+    def op = new UpsertOracleLoadBalancerAtomicOperation(desc)
+    def certs = [ 
+      // to be removed
+      'cert0': Certificate.builder().certificateName('cert0').publicCertificate("cert0_pub").build(), 
+      // to keep
+      'cert1': Certificate.builder().certificateName('cert1').publicCertificate("cert1_pub").build(), 
+    ]
+
+    when:
+    op.operate(null)
+
+    then:
+    1 * loadBalancerClient.getLoadBalancer(_) >> 
+      GetLoadBalancerResponse.builder().loadBalancer(LoadBalancer.builder().id(loadBalancerId).certificates(certs).build()).build()
+    1 * loadBalancerClient.deleteCertificate(_) >> { args ->
+      DeleteCertificateRequest delCert = args[0]
+      assert delCert.getLoadBalancerId() == loadBalancerId
+      assert delCert.certificateName == 'cert0'
+      DeleteCertificateResponse.builder().opcWorkRequestId("wr0").build()
+    }
+    1 * OracleWorkRequestPoller.poll("wr0", _, _, loadBalancerClient) >> null
+    1 * loadBalancerClient.createCertificate(_) >> { args ->
+      CreateCertificateRequest crCertReq = args[0]
+      assert crCertReq.getLoadBalancerId() == loadBalancerId
+      assert crCertReq.getCreateCertificateDetails().certificateName == 'cert2'
+      CreateCertificateResponse.builder().opcWorkRequestId("wr2").build()
     }
     1 * OracleWorkRequestPoller.poll("wr2", _, _, loadBalancerClient) >> null
   }
