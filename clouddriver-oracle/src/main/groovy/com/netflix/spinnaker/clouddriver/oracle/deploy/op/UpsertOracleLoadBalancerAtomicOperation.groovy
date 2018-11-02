@@ -21,6 +21,7 @@ import com.oracle.bmc.loadbalancer.model.BackendDetails
 import com.oracle.bmc.loadbalancer.model.BackendSet
 import com.oracle.bmc.loadbalancer.model.BackendSetDetails
 import com.oracle.bmc.loadbalancer.model.CreateBackendSetDetails
+import com.oracle.bmc.loadbalancer.model.CreateListenerDetails
 import com.oracle.bmc.loadbalancer.model.CreateLoadBalancerDetails
 import com.oracle.bmc.loadbalancer.model.HealthCheckerDetails
 import com.oracle.bmc.loadbalancer.model.ListenerDetails
@@ -28,6 +29,7 @@ import com.oracle.bmc.loadbalancer.model.LoadBalancer
 import com.oracle.bmc.loadbalancer.model.UpdateBackendSetDetails
 import com.oracle.bmc.loadbalancer.model.UpdateListenerDetails
 import com.oracle.bmc.loadbalancer.requests.CreateCertificateRequest
+import com.oracle.bmc.loadbalancer.requests.CreateListenerRequest
 import com.oracle.bmc.loadbalancer.requests.CreateLoadBalancerRequest
 import com.oracle.bmc.loadbalancer.requests.CreateBackendSetRequest
 import com.oracle.bmc.loadbalancer.requests.DeleteCertificateRequest
@@ -101,21 +103,44 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
     return builder.build()
   }
 
-  UpdateListenerDetails toUpdate(ListenerDetails details) {
-    UpdateListenerDetails.Builder builder = UpdateListenerDetails.builder()
+  CreateListenerDetails toCreate(ListenerDetails details, String name) {
+    CreateListenerDetails.Builder builder = CreateListenerDetails.builder().name(name)
       .protocol(details.protocol).port(details.port)
-      .defaultBackendSetName(details.defaultBackendSetName)
     if (details.connectionConfiguration) {
       builder.connectionConfiguration(details.connectionConfiguration)
+    }
+    if (details.defaultBackendSetName) {
+      builder.defaultBackendSetName(details.defaultBackendSetName)
     }
     if (details.hostnameNames) {
       builder.hostnameNames(details.hostnameNames)
     }
+    if (details.pathRouteSetName) {
+      builder.pathRouteSetName(details.pathRouteSetName)
+    }
     if (details.sslConfiguration) {
       builder.sslConfiguration(details.sslConfiguration)
     }
+    return builder.build()
+  }
+
+  UpdateListenerDetails toUpdate(ListenerDetails details) {
+    UpdateListenerDetails.Builder builder = UpdateListenerDetails.builder()
+      .protocol(details.protocol).port(details.port)
+    if (details.connectionConfiguration) {
+      builder.connectionConfiguration(details.connectionConfiguration)
+    }
+    if (details.defaultBackendSetName) {
+      builder.defaultBackendSetName(details.defaultBackendSetName)
+    }
+    if (details.hostnameNames) {
+      builder.hostnameNames(details.hostnameNames)
+    }
     if (details.pathRouteSetName) {
       builder.pathRouteSetName(details.pathRouteSetName)
+    }
+    if (details.sslConfiguration) {
+      builder.sslConfiguration(details.sslConfiguration)
     }
     return builder.build()
   }
@@ -190,7 +215,27 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
       }
       updateBackendSets(lb, task)
       updateCertificates(lb, task)
-
+      //Update Listeners
+      lb.listeners?.each { name, existingListener ->
+        ListenerDetails listenerUpdate = description.listeners?.get(name)
+        if (listenerUpdate) {
+          def rs = description.credentials.loadBalancerClient.updateListener(
+            UpdateListenerRequest.builder().loadBalancerId(lb.getId()).listenerName(name)
+            .updateListenerDetails(toUpdate(listenerUpdate)).build());
+          task.updateStatus(BASE_PHASE, "UpdateListenerRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
+          OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+        }
+      }
+      //Add new Listeners
+      description.listeners?.each { name, listener ->
+        if (!lb.listeners?.containsKey(name)) {
+          def rs = description.credentials.loadBalancerClient.createListener(
+            CreateListenerRequest.builder().loadBalancerId(description.loadBalancerId)
+            .createListenerDetails(toCreate(listener, name)).build())
+          task.updateStatus(BASE_PHASE, "CreateListenerRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
+          OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+        }
+      }
   } 
   
   void create(Task task) {

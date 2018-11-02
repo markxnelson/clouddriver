@@ -28,10 +28,6 @@
                     }
                 }
             },
-            "listeners": {
-                "httpListener": { "port": "8080", "protocol": "HTTP", "defaultBackendSetName" : "myBackendSet" },
-                "httpsListener": { "port": "8081", "protocol": "HTTPS", "defaultBackendSetName" : "myBackendSet" }
-            },
             "cloudProvider": "oracle",
             "region": "us-ashburn-1",
             "user": "anonymous",

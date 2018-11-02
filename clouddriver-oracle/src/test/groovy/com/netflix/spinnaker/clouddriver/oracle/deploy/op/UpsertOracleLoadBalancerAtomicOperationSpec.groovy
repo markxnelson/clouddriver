@@ -25,23 +25,30 @@ import com.oracle.bmc.loadbalancer.model.BackendSet
 import com.oracle.bmc.loadbalancer.model.BackendSetDetails
 import com.oracle.bmc.loadbalancer.model.CreateBackendSetDetails
 import com.oracle.bmc.loadbalancer.model.HealthCheckerDetails
+import com.oracle.bmc.loadbalancer.model.Listener
 import com.oracle.bmc.loadbalancer.model.ListenerDetails
 import com.oracle.bmc.loadbalancer.model.LoadBalancer
 import com.oracle.bmc.loadbalancer.model.UpdateBackendSetDetails
 import com.oracle.bmc.loadbalancer.model.UpdateListenerDetails
 import com.oracle.bmc.loadbalancer.requests.CreateBackendSetRequest
 import com.oracle.bmc.loadbalancer.requests.CreateCertificateRequest
+import com.oracle.bmc.loadbalancer.requests.CreateListenerRequest
 import com.oracle.bmc.loadbalancer.requests.CreateLoadBalancerRequest
 import com.oracle.bmc.loadbalancer.requests.DeleteBackendSetRequest
 import com.oracle.bmc.loadbalancer.requests.DeleteCertificateRequest
+import com.oracle.bmc.loadbalancer.requests.DeleteListenerRequest
 import com.oracle.bmc.loadbalancer.requests.UpdateBackendSetRequest
+import com.oracle.bmc.loadbalancer.requests.UpdateListenerRequest
 import com.oracle.bmc.loadbalancer.responses.CreateBackendSetResponse
 import com.oracle.bmc.loadbalancer.responses.CreateCertificateResponse
+import com.oracle.bmc.loadbalancer.responses.CreateListenerResponse
 import com.oracle.bmc.loadbalancer.responses.CreateLoadBalancerResponse
 import com.oracle.bmc.loadbalancer.responses.DeleteBackendSetResponse
 import com.oracle.bmc.loadbalancer.responses.DeleteCertificateResponse
+import com.oracle.bmc.loadbalancer.responses.DeleteListenerResponse
 import com.oracle.bmc.loadbalancer.responses.GetLoadBalancerResponse
 import com.oracle.bmc.loadbalancer.responses.UpdateBackendSetResponse
+import com.oracle.bmc.loadbalancer.responses.UpdateListenerResponse
 import spock.lang.Shared
 import spock.lang.Specification
 
@@ -228,7 +235,60 @@ class UpsertOracleLoadBalancerAtomicOperationSpec extends Specification {
     }
     1 * OracleWorkRequestPoller.poll("wr2", _, _, loadBalancerClient) >> null
   }
-  
+
+  def "Update LoadBalancer with Listeners"() {
+    setup:
+    def loadBalancerId = 'updateLoadBalancerListeners';
+    def req = read('updateLoadBalancerListeners.json')
+    def desc = converter.convertDescription(req[0].upsertLoadBalancer)
+
+    def creds = Mock(OracleNamedAccountCredentials)
+    def loadBalancerClient = Mock(LoadBalancerClient)
+    creds.loadBalancerClient >> loadBalancerClient
+    desc.credentials = creds
+
+    GroovySpy(OracleWorkRequestPoller, global: true)
+
+    TaskRepository.threadLocalTask.set(Mock(Task))
+    def op = new UpsertOracleLoadBalancerAtomicOperation(desc)
+    def listeners = [ 
+      // to be removed
+      'httpListener0': Listener.builder().name('httpListener0').protocol('HTTP').port(80).build(), 
+      // to be updated
+      'httpListener1': Listener.builder().name('httpListener1').protocol('HTTP').port(81).build(), 
+    ]
+
+    when:
+    op.operate(null)
+
+    then:
+    1 * loadBalancerClient.getLoadBalancer(_) >> 
+      GetLoadBalancerResponse.builder().loadBalancer(LoadBalancer.builder().id(loadBalancerId)
+        .listeners(listeners).build()).build()
+    1 * loadBalancerClient.deleteListener(_) >> { args ->
+      DeleteListenerRequest dlLis = args[0]
+      assert dlLis.getLoadBalancerId() == loadBalancerId
+      assert dlLis.listenerName == 'httpListener0'
+      DeleteListenerResponse.builder().opcWorkRequestId("wr0").build()
+    }
+    1 * OracleWorkRequestPoller.poll("wr0", _, _, loadBalancerClient) >> null
+    1 * loadBalancerClient.updateListener(_) >> { args ->
+      UpdateListenerRequest upLis = args[0]
+      assert upLis.getLoadBalancerId() == loadBalancerId
+      assert upLis.listenerName == 'httpListener1'
+      assert upLis.updateListenerDetails.port  == 8081
+      UpdateListenerResponse.builder().opcWorkRequestId("wr1").build()
+    }
+    1 * OracleWorkRequestPoller.poll("wr1", _, _, loadBalancerClient) >> null
+    1 * loadBalancerClient.createListener(_) >> { args ->
+      CreateListenerRequest crLis = args[0]
+      assert crLis.getLoadBalancerId() == loadBalancerId
+      assert crLis.createListenerDetails.name == 'httpsListener'
+      assert crLis.createListenerDetails.port == 8082
+      CreateListenerResponse.builder().opcWorkRequestId("wr2").build()
+    }
+    1 * OracleWorkRequestPoller.poll("wr2", _, _, loadBalancerClient) >> null
+  }
 
   def read(String fileName) {
     def json = new File(getClass().getResource('/desc/' + fileName).toURI()).text
