@@ -46,7 +46,8 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
 
   private final UpsertLoadBalancerDescription description
 
-  private static final String BASE_PHASE = "UpsertLB" //"CREATE_LOADBALANCER"
+  private static final String CREATE = "CreateLB" 
+  private static final String UPDATE = "UpdateLB" 
 
   private static Task getTask() {
     TaskRepository.threadLocalTask.get()
@@ -153,14 +154,14 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
         def rs = description.credentials.loadBalancerClient.updateBackendSet(
           UpdateBackendSetRequest.builder().loadBalancerId(lb.getId()).backendSetName(name)
           .updateBackendSetDetails(toUpdate(backendSetUpdate, existingBackendSet)).build());
-        task.updateStatus(BASE_PHASE, "UpdateBackendSetRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
-        OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+        task.updateStatus(UPDATE, "UpdateBackendSetRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
+        OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), UPDATE, task, description.credentials.loadBalancerClient)
       } else {
         // Delete backendSet: must have no backend and no listener
         def rs = description.credentials.loadBalancerClient.deleteBackendSet(
           DeleteBackendSetRequest.builder().loadBalancerId(lb.getId()).backendSetName(name).build());
-        task.updateStatus(BASE_PHASE, "DeleteBackendSetRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
-        OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+        task.updateStatus(UPDATE, "DeleteBackendSetRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
+        OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), UPDATE, task, description.credentials.loadBalancerClient)
       }
     }
     // Add new backendSets
@@ -169,8 +170,8 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
         def rs = description.credentials.loadBalancerClient.createBackendSet(
           CreateBackendSetRequest.builder().loadBalancerId(description.loadBalancerId)
           .createBackendSetDetails(toCreate(details, name)).build())
-        task.updateStatus(BASE_PHASE, "CreateBackendSetRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
-        OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+        task.updateStatus(UPDATE, "CreateBackendSetRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
+        OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), UPDATE, task, description.credentials.loadBalancerClient)
       }
     }
   }
@@ -182,8 +183,8 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
         // Delete certificate: must have no listener using it
         def rs = description.credentials.loadBalancerClient.deleteCertificate(
           DeleteCertificateRequest.builder().loadBalancerId(lb.getId()).certificateName(name).build());
-        task.updateStatus(BASE_PHASE, "DeleteCertificateRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
-        OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+        task.updateStatus(UPDATE, "DeleteCertificateRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
+        OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), UPDATE, task, description.credentials.loadBalancerClient)
       }
     }
     // Add new certificate
@@ -193,14 +194,15 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
         def rs = description.credentials.loadBalancerClient.createCertificate(
           CreateCertificateRequest.builder().loadBalancerId(description.loadBalancerId)
           .createCertificateDetails(toCreate(details, name)).build())
-        task.updateStatus(BASE_PHASE, "CreateCertificateRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
-        OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+        task.updateStatus(UPDATE, "CreateCertificateRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
+        OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), UPDATE, task, description.credentials.loadBalancerClient)
       }
     }
   }
   
   void update(LoadBalancer lb, Task task) {
-      task.updateStatus(BASE_PHASE, "Update LB: ${description.qualifiedName()} $lb")
+      task.updateStatus(UPDATE, "UpdateLoadBalancer: $lb.displayName")
+      System.out.println("~~~ upLB ~~~ " + description.listeners)
       // Delete Listeners
       lb.listeners.each { name, existingListener ->
         ListenerDetails listenerUpdate = description.listeners?.get(name)
@@ -209,8 +211,8 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
         } else {
           def rs = description.credentials.loadBalancerClient.deleteListener(
             DeleteListenerRequest.builder().loadBalancerId(lb.getId()).listenerName(name).build());
-          task.updateStatus(BASE_PHASE, "DeleteListenerRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
-          OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+          task.updateStatus(UPDATE, "DeleteListenerRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
+          OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), UPDATE, task, description.credentials.loadBalancerClient)
         }
       }
       updateBackendSets(lb, task)
@@ -222,8 +224,8 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
           def rs = description.credentials.loadBalancerClient.updateListener(
             UpdateListenerRequest.builder().loadBalancerId(lb.getId()).listenerName(name)
             .updateListenerDetails(toUpdate(listenerUpdate)).build());
-          task.updateStatus(BASE_PHASE, "UpdateListenerRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
-          OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+          task.updateStatus(UPDATE, "UpdateListenerRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
+          OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), UPDATE, task, description.credentials.loadBalancerClient)
         }
       }
       //Add new Listeners
@@ -232,15 +234,15 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
           def rs = description.credentials.loadBalancerClient.createListener(
             CreateListenerRequest.builder().loadBalancerId(description.loadBalancerId)
             .createListenerDetails(toCreate(listener, name)).build())
-          task.updateStatus(BASE_PHASE, "CreateListenerRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
-          OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+          task.updateStatus(UPDATE, "CreateListenerRequest of ${name} submitted - work request id: ${rs.getOpcWorkRequestId()}")
+          OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), UPDATE, task, description.credentials.loadBalancerClient)
         }
       }
   } 
   
   void create(Task task) {
     def clusterName = description.qualifiedName()
-    task.updateStatus(BASE_PHASE, "Create LB: ${description.qualifiedName()}")
+    task.updateStatus(CREATE, "Create LB: ${description.qualifiedName()}")
     def lbDetails = CreateLoadBalancerDetails.builder()
         .displayName(clusterName)
         .compartmentId(description.credentials.compartmentId)
@@ -260,15 +262,12 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
     }
     def rs = description.credentials.loadBalancerClient.createLoadBalancer(
       CreateLoadBalancerRequest.builder().createLoadBalancerDetails(lbDetails.build()).build())
-    task.updateStatus(BASE_PHASE, "Create LB rq submitted - work request id: ${rs.getOpcWorkRequestId()}")
-    OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+    task.updateStatus(CREATE, "Create LB rq submitted - work request id: ${rs.getOpcWorkRequestId()}")
+    OracleWorkRequestPoller.poll(rs.getOpcWorkRequestId(), CREATE, task, description.credentials.loadBalancerClient)
   }
    
   @Override
   Map operate(List priorOutputs) {
-    
-    System.out.println("~~~~ UpsertLB description " + description);
-    
     def task = getTask()
     if (description.loadBalancerId) {
       try {
@@ -277,11 +276,11 @@ class UpsertOracleLoadBalancerAtomicOperation implements AtomicOperation<Map> {
         if (lb) {
           update(lb, task)
         } else {
-          task.updateStatus BASE_PHASE, "LoadBalancer ${description.loadBalancerId} does not exist."
+          task.updateStatus UPDATE, "LoadBalancer ${description.loadBalancerId} does not exist."
         }
       } catch (BmcException e) {
         if (e.statusCode == 404) {
-          task.updateStatus BASE_PHASE, "LoadBalancer ${description.loadBalancerId} does not exist."
+          task.updateStatus UPDATE, "LoadBalancer ${description.loadBalancerId} does not exist."
         } else {
           throw e
         }
