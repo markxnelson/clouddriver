@@ -83,4 +83,6 @@ dependencies {
 
   testCompile 'ru.lanwen.wiremock:wiremock-junit5:1.2.0'
   testCompile 'com.github.tomakehurst:wiremock:latest.release'
+
+  testCompile "org.glassfish.jersey.core:jersey-common:2.27"
 }
