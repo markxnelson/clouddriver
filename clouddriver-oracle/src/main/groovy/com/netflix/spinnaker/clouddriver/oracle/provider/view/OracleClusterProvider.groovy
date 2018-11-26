@@ -20,9 +20,9 @@ import com.netflix.spinnaker.clouddriver.oracle.cache.Keys
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleCluster
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleServerGroup
 import com.netflix.spinnaker.clouddriver.security.AccountCredentialsProvider
-import groovy.util.logging.Slf4j
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
+import groovy.util.logging.Slf4j
 
 @Slf4j
 @Component
@@ -44,6 +44,11 @@ class OracleClusterProvider implements ClusterProvider<OracleCluster.View> {
     this.objectMapper = objectMapper
     this.accountCredentialsProvider = accountCredentialsProvider
     this.cacheView = cacheView
+  }
+
+  Set<OracleServerGroup> getServerGroups() {
+    Collection<String> identifiers = cacheView.getIdentifiers(Keys.Namespace.SERVER_GROUPS.ns)
+    return loadServerGroups(identifiers)
   }
 
   @Override
@@ -105,14 +110,22 @@ class OracleClusterProvider implements ClusterProvider<OracleCluster.View> {
 
   private OracleServerGroup restoreCreds(OracleServerGroup partial, String identifier) {
     def account = Keys.parse(identifier)?.get("account")
-    partial.credentials = accountCredentialsProvider.getCredentials(account)
+    if (account) {
+      partial.credentials = accountCredentialsProvider.getCredentials(account)
+    }
     return partial
   }
 
   private Set<OracleServerGroup> loadServerGroups(Collection<String> identifiers) {
     def data = cacheView.getAll(Keys.Namespace.SERVER_GROUPS.ns, identifiers, RelationshipCacheFilter.none())
+//System.out.println('~~~~ !!!!!!!!!!!!!! loadServerGroups for ' + identifiers )
     return data.collect { cacheItem ->
+//      if (cacheItem.attributes.serverGroup) {
+////This is not OracleServerGroup
+//      }
       def sg = objectMapper.convertValue(cacheItem.attributes, OracleServerGroup)
+//System.out.println('~~~~ !!!!! restoreCreds for ' + sg.name + ' ' + sg.cloudProvider )
+//System.out.println('                                ' + cacheItem.attributes.name + ' ' + cacheItem.attributes.serverGroup?.cloudProvider  )
       restoreCreds(sg, cacheItem.id)
 
       sg.instances?.each {

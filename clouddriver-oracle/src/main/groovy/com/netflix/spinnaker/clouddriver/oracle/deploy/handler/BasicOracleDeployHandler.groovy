@@ -17,6 +17,7 @@ import com.netflix.spinnaker.clouddriver.model.ServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.deploy.OracleServerGroupNameResolver
 import com.netflix.spinnaker.clouddriver.oracle.deploy.OracleWorkRequestPoller
 import com.netflix.spinnaker.clouddriver.oracle.deploy.description.BasicOracleDeployDescription
+import com.netflix.spinnaker.clouddriver.oracle.deploy.op.CreateInstancePoolAtomicOperation
 import com.netflix.spinnaker.clouddriver.oracle.model.Details
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.provider.view.OracleClusterProvider
@@ -30,9 +31,9 @@ import com.oracle.bmc.loadbalancer.model.UpdateBackendSetDetails
 import com.oracle.bmc.loadbalancer.requests.GetLoadBalancerRequest
 import com.oracle.bmc.loadbalancer.requests.UpdateBackendSetRequest
 import com.oracle.bmc.loadbalancer.responses.UpdateBackendSetResponse
+import java.util.concurrent.TimeUnit
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
-import java.util.concurrent.TimeUnit
 
 @Component
 class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescription> {
@@ -76,6 +77,7 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
       "vpcId"             : description.vpcId,
       "subnetId"          : description.subnetId,
       "sshAuthorizedKeys" : description.sshAuthorizedKeys,
+      "placements"        : description.placements?.collect {it.primarySubnetId +',' + it.availabilityDomain},
       "createdTime"       : System.currentTimeMillis()
     ]
     int targetSize = description.targetSize?: (description.capacity?.desired?:0)
@@ -91,11 +93,18 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
       loadBalancerId: description.loadBalancerId
     )
 
-    oracleServerGroupService.createServerGroup(task, sg)
+    if (description.placements) {
+System.out.println('~~~~ CreateInstancePoolAtomicOperation in ADs: ' + description.placements.size())
+      CreateInstancePoolAtomicOperation ipOp = new CreateInstancePoolAtomicOperation(description)
+      ipOp.operate(priorOutputs)
+      oracleServerGroupService.updateServerGroup(sg)
+    }  else {
+      oracleServerGroupService.createServerGroup(task, sg)
+    }
 
     task.updateStatus BASE_PHASE, "Done creating server group $serverGroupName."
 
-    if (description.loadBalancerId) {
+    if (description.loadBalancerId && !description.placements) {
       // get LB
       LoadBalancer lb = description.credentials.loadBalancerClient.getLoadBalancer(
         GetLoadBalancerRequest.builder().loadBalancerId(description.loadBalancerId).build()).loadBalancer
@@ -151,7 +160,7 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
       defaultBackendSet.backends.each { existingBackend ->
         backends << Details.of(existingBackend)
       }
-        
+
       UpdateBackendSetDetails updateDetails = UpdateBackendSetDetails.builder()
         .policy(defaultBackendSet.policy)
         .healthChecker(Details.of(defaultBackendSet.healthChecker))

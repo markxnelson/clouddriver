@@ -9,9 +9,11 @@
 
 package com.netflix.spinnaker.clouddriver.oracle.deploy.description
 
+import static com.google.common.base.Strings.isNullOrEmpty
 import com.netflix.spinnaker.clouddriver.deploy.DeployDescription
 import com.netflix.spinnaker.clouddriver.model.ServerGroup
 import com.netflix.spinnaker.clouddriver.security.resources.ApplicationNameable
+import com.oracle.bmc.core.model.CreateInstancePoolPlacementConfigurationDetails
 import groovy.transform.AutoClone
 import groovy.transform.Canonical
 import groovy.transform.ToString
@@ -27,11 +29,36 @@ class BasicOracleDeployDescription extends BaseOracleInstanceDescription impleme
   String loadBalancerId
   String backendSetName
   ServerGroup.Capacity capacity
+  List<CreateInstancePoolPlacementConfigurationDetails> placements
   //targetSize takes precedence if targetSize and capacity.desired are both specified.
   Integer targetSize
 
   @Override
   Collection<String> getApplications() {
     return [application]
+  }
+
+  //see NameBuilder.combineAppStackDetail
+  public String qualifiedName() {
+    String stck = isNullOrEmpty(this.stack)? this.stack : "";
+    if (isNullOrEmpty(freeFormDetails)) {
+      return this.application + "-" + stck + "-" + freeFormDetails;
+    }
+    if (!stack.isEmpty()) {
+      return this.application + "-" + stack;
+    }
+    return this.application;
+  }
+
+  public int targetSize() {
+    if (targetSize != null) {
+      return targetSize;
+    } else {
+      if (capacity != null && capacity.getDesired() != null) {
+        return capacity.getDesired();
+      } else {
+        return 0;
+      }
+    }
   }
 }

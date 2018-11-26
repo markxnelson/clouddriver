@@ -33,8 +33,6 @@ import com.netflix.spinnaker.clouddriver.security.AllowedAccountsValidator
 import com.netflix.spinnaker.clouddriver.security.ProviderVersion
 import com.netflix.spinnaker.clouddriver.security.config.SecurityConfig
 import com.netflix.spinnaker.security.AuthenticatedRequest
-import groovy.transform.Canonical
-import groovy.util.logging.Slf4j
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.context.MessageSource
 import org.springframework.validation.Errors
@@ -44,6 +42,8 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestMethod
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import groovy.transform.Canonical
+import groovy.util.logging.Slf4j
 
 @Slf4j
 @RestController
@@ -114,6 +114,8 @@ class OperationsController {
   }
 
   private List<AtomicOperation> collectAtomicOperations(String cloudProvider, List<Map<String, Map>> inputs) {
+//System.out.println('~~ cloudProvider : ' + cloudProvider)
+//System.out.println('~~               : ' + inputs)
     def results = convert(cloudProvider, inputs)
     def atomicOperations = []
     for (bindingResult in results) {

@@ -13,15 +13,18 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.netflix.spinnaker.cats.cache.Cache
 import com.netflix.spinnaker.cats.cache.CacheData
 import com.netflix.spinnaker.cats.cache.RelationshipCacheFilter
+import com.netflix.spinnaker.clouddriver.model.LoadBalancerInstance
 import com.netflix.spinnaker.clouddriver.model.LoadBalancerProvider
 import com.netflix.spinnaker.clouddriver.model.LoadBalancerServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.OracleCloudProvider
 import com.netflix.spinnaker.clouddriver.oracle.cache.Keys
+import com.netflix.spinnaker.clouddriver.oracle.model.OracleInstance
+import com.netflix.spinnaker.clouddriver.oracle.model.OracleServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleSubnet
 import com.oracle.bmc.loadbalancer.model.LoadBalancer
-import groovy.util.logging.Slf4j
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
+import groovy.util.logging.Slf4j
 
 @Slf4j
 @Component
@@ -33,6 +36,9 @@ class OracleLoadBalancerProvider implements LoadBalancerProvider<OracleLoadBalan
 
   @Autowired
   OracleSubnetProvider oracleSubnetProvider;
+
+  @Autowired
+  OracleClusterProvider clusterProvider;
 
   @Autowired
   OracleLoadBalancerProvider(Cache cacheView, ObjectMapper objectMapper) {
@@ -81,9 +87,65 @@ class OracleLoadBalancerProvider implements LoadBalancerProvider<OracleLoadBalan
 
   Set<OracleLoadBalancerDetail> loadResults(Collection<String> identifiers) {
     def data = cacheView.getAll(Keys.Namespace.LOADBALANCERS.ns, identifiers, RelationshipCacheFilter.none())
-    def transformed = data.collect(this.&fromCacheData)
+    Set<OracleLoadBalancerDetail> lbs = data.collect(this.&fromCacheData)
 
-    return transformed
+    Set<OracleServerGroup> serverGroups = clusterProvider.getServerGroups()
+    serverGroups.each { sg ->
+      System.out.println('==== serverGroup: ' + sg.name + ' LB:' + sg.loadBalancerId + ' instances:' + sg.instances )
+    }
+
+    lbs.each { lb ->
+      def sgs = serverGroups.findAll { it.loadBalancerId == lb.id }
+//      System.out.println('~~~~ lb: ' + lb.name + ' LB:' + lb.id )
+      lb.serverGroups = sgs.collect { loadBalancerServerGroup(lb.account, it) }
+//      lb.serverGroups = sgs.collect { sg ->
+//        new LoadBalancerServerGroup (
+//          name: sg.name,
+////          account:
+//          region: sg.region,
+//          isDisabled: sg.disabled,
+////  Set<String> detachedInstances;
+//          instances: sg.instances.collect { ins ->
+//            new LoadBalancerInstance (
+//              id: ins.id,
+//              name: ins.name,
+//              zone: ins.zone,
+////  Map<String, Object> health;
+//            )
+//          } //Set<LoadBalancerInstance>
+//        )
+//      }
+//      System.out.println('     lbsgs:'  + lb.serverGroups )
+    }
+
+System.out.println('~~~~~~~~~ lbs: ' + lbs )
+    return lbs
+  }
+
+  LoadBalancerServerGroup loadBalancerServerGroup(String acc, OracleServerGroup osg) {
+    return new LoadBalancerServerGroup (
+      name: osg.name,
+          account: acc,
+          region: osg.region,
+          isDisabled: osg.disabled,
+//  Set<String> detachedInstances;
+          instances: osg.instances.collect { ins ->
+            new LoadBalancerInstance (
+              id: ins.id,
+              name: ins.name,
+              zone: ins.zone,
+              health: healthOf(ins),
+            )
+      }
+    )
+  }
+
+  Map<String, Object> healthOf(OracleInstance ins) {
+    def health = [:]
+    if (ins.health) {
+      ins.health.each { health << it }
+    }
+    return health;
   }
 
   OracleLoadBalancerDetail fromCacheData(CacheData cacheData) {
@@ -103,6 +165,7 @@ class OracleLoadBalancerProvider implements LoadBalancerProvider<OracleLoadBalan
       backendSets: loadBalancer.backendSets,
       subnets: subnets,
       timeCreated: loadBalancer.timeCreated.toInstant().toString(),
+//      serverGroups: [] as Set<OracleServerGroup>)
       serverGroups: [] as Set<LoadBalancerServerGroup>)
   }
 
@@ -160,7 +223,7 @@ class OracleLoadBalancerProvider implements LoadBalancerProvider<OracleLoadBalan
     String timeCreated
     Set<LoadBalancerServerGroup> serverGroups = []
     List ipAddresses = []
-    Map certificates 
+    Map certificates
     Map listeners
     Map backendSets
     Set<OracleSubnet> subnets

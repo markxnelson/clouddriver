@@ -16,11 +16,7 @@ import com.netflix.spinnaker.clouddriver.oracle.deploy.description.DestroyOracle
 import com.netflix.spinnaker.clouddriver.oracle.model.Details
 import com.netflix.spinnaker.clouddriver.oracle.service.servergroup.OracleServerGroupService
 import com.netflix.spinnaker.clouddriver.orchestration.AtomicOperation
-import com.oracle.bmc.loadbalancer.model.Backend
-import com.oracle.bmc.loadbalancer.model.BackendDetails
 import com.oracle.bmc.loadbalancer.model.BackendSet
-import com.oracle.bmc.loadbalancer.model.HealthChecker
-import com.oracle.bmc.loadbalancer.model.HealthCheckerDetails
 import com.oracle.bmc.loadbalancer.model.LoadBalancer
 import com.oracle.bmc.loadbalancer.model.UpdateBackendSetDetails
 import com.oracle.bmc.loadbalancer.requests.GetLoadBalancerRequest
@@ -44,7 +40,7 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
   DestroyOracleServerGroupAtomicOperation(DestroyOracleServerGroupDescription description) {
     this.description = description
   }
-  
+
   @Override
   Void operate(List priorOutputs) {
     def app = Names.parseName(description.serverGroupName).app
@@ -62,7 +58,7 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
         }
     }
     if (loadBalancer) {
-    Set<String> toGo = serverGroup.instances.collect {it.privateIp} as Set
+      Set<String> toGo = serverGroup.instances.collect {it.privateIp} as Set
       try {
         BackendSet backendSet = serverGroup.backendSetName? loadBalancer.backendSets.get(serverGroup.backendSetName) : null
         if (backendSet == null && loadBalancer.backendSets.size() == 1) {
@@ -86,7 +82,7 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
           }
           UpdateBackendSetRequest updateBackendSet = UpdateBackendSetRequest.builder()
             .loadBalancerId(serverGroup.loadBalancerId).backendSetName(backendSet.name)
-            .updateBackendSetDetails(details.build()).build() 
+            .updateBackendSetDetails(details.build()).build()
           def updateRes = description.credentials.loadBalancerClient.updateBackendSet(updateBackendSet)
           OracleWorkRequestPoller.poll(updateRes.opcWorkRequestId, BASE_PHASE, task, description.credentials.loadBalancerClient)
         }

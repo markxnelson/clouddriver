@@ -21,7 +21,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.netflix.spinnaker.clouddriver.orchestration.AtomicOperationConverter
 import com.netflix.spinnaker.kork.web.exceptions.InvalidRequestException
-import groovy.transform.InheritConstructors
 import org.springframework.beans.factory.annotation.Autowired
 
 abstract class AbstractAtomicOperationsCredentialsSupport implements AtomicOperationConverter {
@@ -54,5 +53,10 @@ abstract class AbstractAtomicOperationsCredentialsSupport implements AtomicOpera
     }
 
     return credential
+  }
+
+  @Override
+  public boolean acceptsVersion(ProviderVersion version) {
+    return version == ProviderVersion.v1;
   }
 }
