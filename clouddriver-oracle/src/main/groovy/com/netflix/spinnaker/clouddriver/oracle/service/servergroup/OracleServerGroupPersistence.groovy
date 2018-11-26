@@ -15,11 +15,10 @@ import com.netflix.spinnaker.clouddriver.oracle.security.OracleNamedAccountCrede
 import com.oracle.bmc.model.BmcException
 import com.oracle.bmc.objectstorage.model.CreateBucketDetails
 import com.oracle.bmc.objectstorage.requests.*
+import java.nio.charset.Charset
+import org.springframework.stereotype.Component
 import groovy.transform.Synchronized
 import groovy.util.logging.Slf4j
-import org.springframework.stereotype.Component
-
-import java.nio.charset.Charset
 
 /**
  * Uses Object Storage as a persistent store for server group data. This is a temporary work around
@@ -170,12 +169,12 @@ class OracleServerGroupPersistence {
   }
 
   private String serverGroupToJson(OracleServerGroup sg) {
-    // Save these to re-assign after ObjectMapper does its work.
-    def credentials = sg.credentials
-    sg.credentials = null
-    def json = objectMapper.writeValueAsString(sg);
-    sg.credentials = credentials
-    return json
+//    // Save these to re-assign after ObjectMapper does its work.
+//    def credentials = sg.credentials
+//    sg.credentials = null
+    return objectMapper.writeValueAsString(sg);
+//    sg.credentials = credentials
+//    return json
   }
 
   private OracleServerGroup jsonToServerGroup(String json, OracleNamedAccountCredentials creds) {
@@ -211,7 +210,7 @@ class OracleServerGroupPersistence {
           String json
           inputStream.withStream { json = inputStream.getText("UTF-8") }
           sg = jsonToServerGroup(json, ctx.creds)
-          return sg 
+          return sg
         } catch (BmcException e) {
           if (e.getStatusCode() == 404) {
             log.warn(e.getLocalizedMessage())

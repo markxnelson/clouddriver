@@ -15,10 +15,30 @@ import com.netflix.spinnaker.clouddriver.oracle.OracleCloudProvider
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleInstance
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.security.OracleNamedAccountCredentials
+import com.oracle.bmc.core.ComputeManagementClient
+import com.oracle.bmc.core.model.ComputeInstanceDetails
+import com.oracle.bmc.core.model.CreateInstanceConfigurationDetails
+import com.oracle.bmc.core.model.CreateInstancePoolDetails
+import com.oracle.bmc.core.model.InstanceConfiguration
+import com.oracle.bmc.core.model.InstanceConfigurationCreateVnicDetails
+import com.oracle.bmc.core.model.InstanceConfigurationInstanceSourceViaImageDetails
+import com.oracle.bmc.core.model.InstanceConfigurationLaunchInstanceDetails
 import com.oracle.bmc.core.model.LaunchInstanceDetails
+import com.oracle.bmc.core.model.Vnic
+import com.oracle.bmc.core.requests.CreateInstanceConfigurationRequest
+import com.oracle.bmc.core.requests.CreateInstancePoolRequest
+import com.oracle.bmc.core.requests.GetInstancePoolRequest
+import com.oracle.bmc.core.requests.GetVnicRequest
 import com.oracle.bmc.core.requests.LaunchInstanceRequest
+import com.oracle.bmc.core.requests.ListInstancePoolInstancesRequest
+import com.oracle.bmc.core.requests.ListVnicAttachmentsRequest
 import com.oracle.bmc.core.requests.TerminateInstanceRequest
+import com.oracle.bmc.core.responses.CreateInstanceConfigurationResponse
+import com.oracle.bmc.core.responses.CreateInstancePoolResponse
+import com.oracle.bmc.core.responses.ListInstancePoolInstancesResponse
+import com.oracle.bmc.core.responses.ListVnicAttachmentsResponse
 import com.oracle.bmc.model.BmcException
+import java.util.concurrent.TimeUnit
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
 
@@ -30,6 +50,7 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
   private static final String RESIZE = "RESIZE_SERVER_GROUP"
   private static final String DISABLE = "DISABLE_SERVER_GROUP"
   private static final String ENABLE = "ENABLE_SERVER_GROUP"
+  private static final int CreateInstancePoolTimeout = 30;
 
   private final OracleServerGroupPersistence persistence;
 
@@ -67,9 +88,18 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
   }
 
   @Override
-  void createServerGroup(Task task, OracleServerGroup sg) {  
+  void createServerGroup(Task task, OracleServerGroup sg) {
+    if(sg.placements) {
+      createInstancePool(task, sg)
+      updateInstances(task, sg)
+    } else {
+      createInstances(task, sg)
+    }
+  }
+
+  void createInstances(Task task, OracleServerGroup sg) {
     def instances = [] as Set
-    //if overList createInstance throws com.oracle.bmc.model.BmcException: (400, LimitExceeded, false) 
+    //if overList createInstance throws com.oracle.bmc.model.BmcException: (400, LimitExceeded, false)
     def errors = []
     try {
       for (int i = 0; i < sg.targetSize; i++) {
@@ -79,7 +109,7 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
       task.updateStatus DEPLOY, "Creating instance failed: $e"
       errors << e
     }
-    if (errors) {    
+    if (errors) {
       if (instances.size() > 0) {
         task.updateStatus DEPLOY, "ServerGroup created with errors: $errors"
       } else {
@@ -93,8 +123,13 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
   }
 
   @Override
-  void updateServerGroup(OracleServerGroup sg) {  
+  void updateServerGroup(OracleServerGroup sg) {
     persistence.upsertServerGroup(sg)
+  }
+
+  @Override
+  void deleteServerGroup(OracleServerGroup sg) {
+    persistence.deleteServerGroup(sg)
   }
 
   @Override
@@ -103,7 +138,7 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
     def serverGroup = persistence.getServerGroupByName(persistenceCtx, serverGroupName)
     if (serverGroup != null) {
       task.updateStatus DESTROY, "Found server group: $serverGroup.name"
-      if (serverGroup.instances && serverGroup.instances.size() > 0) {   
+      if (serverGroup.instances && serverGroup.instances.size() > 0) {
         for (int i = 0; i < serverGroup.targetSize; i++) {
           def instance = serverGroup.instances[i]
           if (instance) {
@@ -220,8 +255,8 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
     return instance
   }
 
-  private void increase(Task task, OracleServerGroup serverGroup, int targetSize) {    
-    int currentSize = serverGroup.targetSize; 
+  private void increase(Task task, OracleServerGroup serverGroup, int targetSize) {
+    int currentSize = serverGroup.targetSize;
     def instances = [] as Set
     def errors = []
     for (int i = currentSize; i < targetSize; i++) {
@@ -233,7 +268,7 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
         errors << e
       }
     }
-    if (errors) {    
+    if (errors) {
       if (instances.size() > 0) {
         task.updateStatus RESIZE, "ServerGroup resize with errors: $errors"
       } else {
@@ -246,7 +281,7 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
     serverGroup.targetSize = currentSize + instances.size()
   }
 
-  private void decrease(Task task, OracleServerGroup serverGroup, int targetSize) {   
+  private void decrease(Task task, OracleServerGroup serverGroup, int targetSize) {
     def instances = [] as Set
     int currentSize = serverGroup.targetSize;
     for (int i = targetSize; i < currentSize; i++) {
@@ -257,5 +292,103 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
         serverGroup.instances.remove(instance)
     }
     serverGroup.targetSize = targetSize
+  }
+
+  InstanceConfiguration instanceConfig(OracleServerGroup sg) {
+    ComputeManagementClient client = sg.credentials.computeManagementClient
+    String compartmentId = sg.credentials.compartmentId
+    InstanceConfigurationCreateVnicDetails vnicDetails = InstanceConfigurationCreateVnicDetails.builder().build()
+
+    InstanceConfigurationInstanceSourceViaImageDetails sourceDetails =
+      InstanceConfigurationInstanceSourceViaImageDetails.builder().imageId(sg.launchConfig.imageId).build()
+
+    InstanceConfigurationLaunchInstanceDetails launchDetails =
+        InstanceConfigurationLaunchInstanceDetails.builder().compartmentId(compartmentId)
+            .displayName(sg.name + "-instance")// instance display name
+            .createVnicDetails(vnicDetails).shape("VM.Standard2.1").sourceDetails(sourceDetails)
+            .build()
+
+    ComputeInstanceDetails instanceDetails =
+        ComputeInstanceDetails.builder().launchDetails(launchDetails)
+            .secondaryVnics(Collections.EMPTY_LIST).blockVolumes(Collections.EMPTY_LIST).build();
+
+    CreateInstanceConfigurationDetails configuDetails =
+        CreateInstanceConfigurationDetails.builder().displayName(sg.name + "-config")
+            .compartmentId(compartmentId).instanceDetails(instanceDetails).build()
+
+    CreateInstanceConfigurationRequest req = CreateInstanceConfigurationRequest.builder()
+        .createInstanceConfiguration(configuDetails).build()
+
+    CreateInstanceConfigurationResponse response = client.createInstanceConfiguration(req);
+    return response.getInstanceConfiguration()
+  }
+
+  /* - create/select(withID) InstanceConfiguration
+   * - CreateInstancePoolPlacementConfigurationDetails
+   * - desc.targetSize()
+   */
+//  InstancePool createInstancePool(String serverGroup, BasicOracleDeployDescription desc) {
+  void createInstancePool(Task task, OracleServerGroup sg) {
+    InstanceConfiguration instanceConfiguration = instanceConfig(sg)
+    ComputeManagementClient client = sg.credentials.computeManagementClient
+    String compartmentId = sg.credentials.compartmentId
+    sg.instanceConfigurationId = instanceConfiguration.id
+    CreateInstancePoolDetails createInstancePoolDetails = CreateInstancePoolDetails.builder()
+        // instancePool dispalyName
+      .displayName(sg.name)
+      .compartmentId(compartmentId).instanceConfigurationId(instanceConfiguration.id)
+      .size(sg.targetSize).placementConfigurations(sg.placements).build()
+
+    CreateInstancePoolRequest request = CreateInstancePoolRequest.builder()
+      .createInstancePoolDetails(createInstancePoolDetails).build()
+    //TODO   com.oracle.bmc.model.BmcException: (400, LimitExceeded, false) Max number of instances available for shape VM.Standard2.1, will be exceeded for iad-ad-3 (0), iad-ad-2 (0)
+    CreateInstancePoolResponse response = client.createInstancePool(request)
+    sg.instancePool = response.getInstancePool()
+    sg.instancePoolId = sg.instancePool.id
+  }
+
+  OracleServerGroup updateInstances(Task task, OracleServerGroup sg) {
+    String compartmentId = sg.credentials.compartmentId
+    long finishBy = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(CreateInstancePoolTimeout)
+    Set<String> up = []
+    while (up.size() < sg.targetSize && System.currentTimeMillis() < finishBy) {
+      sg.instancePool = sg.credentials.computeManagementClient
+        .getInstancePool(GetInstancePoolRequest.builder().instancePoolId(sg.instancePoolId).build()).instancePool
+      ListInstancePoolInstancesResponse listRes = sg.credentials.computeManagementClient
+        .listInstancePoolInstances(ListInstancePoolInstancesRequest.builder().compartmentId(compartmentId).instancePoolId(sg.instancePoolId).build())
+      listRes.items.each { ins ->
+        OracleInstance instance = sg.instances.find{ it.id == ins.id }
+        if (instance == null) {
+          instance = new OracleInstance (
+            name: ins.displayName,
+            id: ins.id,
+            region: ins.region,
+            zone: ins.availabilityDomain,
+            lifecycleState: ins.state,
+            cloudProvider: OracleCloudProvider.ID,
+            launchTime: ins.timeCreated.fastTime)
+          sg.instances << instance
+        }
+
+        System.out.println('~~~~~~~ sg.instances : ' + sg.instances)
+
+        ListVnicAttachmentsResponse vnicAttachRs = sg.credentials.computeClient
+          .listVnicAttachments(ListVnicAttachmentsRequest.builder()
+          .compartmentId(compartmentId).instanceId(ins.id).build())
+        vnicAttachRs.items.each { vnicAttach ->
+          Vnic vnic = sg.credentials.networkClient.getVnic(GetVnicRequest.builder()
+          .vnicId(vnicAttach.vnicId).build()).vnic
+          System.out.println('~~~~~~~ vnic.privateIp : ' + vnic.privateIp)
+          if (vnic.privateIp) {
+            instance.privateIp = vnic.privateIp
+            up << vnic.privateIp
+          }
+          System.out.println('~~~~~~!!!!!! up : ' + up.size()+ ' ' + up)
+        }
+      }
+      task.updateStatus DEPLOY, "Waiting for server group instances to get to Up state"
+      Thread.sleep(5000)
+    }
+    return sg
   }
 }

@@ -30,9 +30,9 @@ import com.oracle.bmc.loadbalancer.model.UpdateBackendSetDetails
 import com.oracle.bmc.loadbalancer.requests.GetLoadBalancerRequest
 import com.oracle.bmc.loadbalancer.requests.UpdateBackendSetRequest
 import com.oracle.bmc.loadbalancer.responses.UpdateBackendSetResponse
+import java.util.concurrent.TimeUnit
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
-import java.util.concurrent.TimeUnit
 
 @Component
 class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescription> {
@@ -76,6 +76,7 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
       "vpcId"             : description.vpcId,
       "subnetId"          : description.subnetId,
       "sshAuthorizedKeys" : description.sshAuthorizedKeys,
+      "placements"        : description.placements?.collect {it.primarySubnetId +',' + it.availabilityDomain},
       "createdTime"       : System.currentTimeMillis()
     ]
     int targetSize = description.targetSize?: (description.capacity?.desired?:0)
@@ -88,11 +89,10 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
       launchConfig: launchConfig,
       targetSize: targetSize,
       credentials: description.credentials,
-      loadBalancerId: description.loadBalancerId
+      loadBalancerId: description.loadBalancerId,
+      placements: description.placements
     )
-
     oracleServerGroupService.createServerGroup(task, sg)
-
     task.updateStatus BASE_PHASE, "Done creating server group $serverGroupName."
 
     if (description.loadBalancerId) {
@@ -101,57 +101,62 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
         GetLoadBalancerRequest.builder().loadBalancerId(description.loadBalancerId).build()).loadBalancer
 
       task.updateStatus BASE_PHASE, "Updating LoadBalancer ${lb.displayName} with backendSet ${description.backendSetName}"
-      // wait for instances to go into running state
-      ServerGroup sgView
-      long finishBy = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(30)
-      boolean allUp = false
-      while (!allUp && System.currentTimeMillis() < finishBy) {
-        sgView = clusterProvider.getServerGroup(sg.credentials.name, sg.region, sg.name)
-        if (sgView && (sgView.instanceCounts.up == sgView.instanceCounts.total)) {
-          task.updateStatus BASE_PHASE, "All instances are Up"
-          allUp = true
-          break
-        }
-        task.updateStatus BASE_PHASE, "Waiting for server group instances to get to Up state"
-        Thread.sleep(5000)
-      }
-      if (!allUp) {
-        task.updateStatus(BASE_PHASE, "Timed out waiting for server group instances to get to Up state")
-        task.fail()
-        return
-      }
+      List<String> privateIps = []
 
-      // get their ip addresses
-      task.updateStatus BASE_PHASE, "Looking up instance IP addresses"
-      List<String> ips = []
-      sg.instances.each { instance ->
-        def vnicAttachRs = description.credentials.computeClient.listVnicAttachments(ListVnicAttachmentsRequest.builder()
-          .compartmentId(description.credentials.compartmentId)
-          .instanceId(instance.id)
-          .build())
-        vnicAttachRs.items.each { vnicAttach ->
-          def vnic = description.credentials.networkClient.getVnic(GetVnicRequest.builder()
-            .vnicId(vnicAttach.vnicId).build()).vnic
-          if (vnic.privateIp) {
-            instance.privateIp = vnic.privateIp
-            ips << vnic.privateIp
+      if (!description.placements) {
+        // wait for instances to go into running state
+        ServerGroup sgView
+        long finishBy = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(30)
+        boolean allUp = false
+        while (!allUp && System.currentTimeMillis() < finishBy) {
+          sgView = clusterProvider.getServerGroup(sg.credentials.name, sg.region, sg.name)
+          if (sgView && (sgView.instanceCounts.up == sgView.instanceCounts.total)) {
+            task.updateStatus BASE_PHASE, "All instances are Up"
+            allUp = true
+            break
+          }
+          task.updateStatus BASE_PHASE, "Waiting for server group instances to get to Up state"
+          Thread.sleep(5000)
+        }
+        if (!allUp) {
+          task.updateStatus(BASE_PHASE, "Timed out waiting for server group instances to get to Up state")
+          task.fail()
+          return
+        }
+
+        // get their ip addresses
+        task.updateStatus BASE_PHASE, "Looking up instance IP addresses"
+        sg.instances.each { instance ->
+          def vnicAttachRs = description.credentials.computeClient.listVnicAttachments(ListVnicAttachmentsRequest.builder()
+            .compartmentId(description.credentials.compartmentId)
+            .instanceId(instance.id)
+            .build())
+          vnicAttachRs.items.each { vnicAttach ->
+            def vnic = description.credentials.networkClient.getVnic(GetVnicRequest.builder()
+              .vnicId(vnicAttach.vnicId).build()).vnic
+            if (vnic.privateIp) {
+              instance.privateIp = vnic.privateIp
+              privateIps << vnic.privateIp
+            }
           }
         }
+      } else {
+        privateIps = sg.instances.collect { it.privateIp } as List
       }
       sg.backendSetName = description.backendSetName
-      task.updateStatus BASE_PHASE, "Adding IP addresses ${ips} to ${description.backendSetName}"
+      task.updateStatus BASE_PHASE, "Adding IP addresses ${privateIps} to ${description.backendSetName}"
       oracleServerGroupService.updateServerGroup(sg)
       // update listener and backendSet
       BackendSet defaultBackendSet = lb.backendSets.get(description.backendSetName)
       // new backends from the serverGroup
-      List<BackendDetails> backends = ips.collect { ip ->
+      List<BackendDetails> backends = privateIps.collect { ip ->
         BackendDetails.builder().ipAddress(ip).port(defaultBackendSet.healthChecker.port).build()
       }
       //merge with existing backendSet
       defaultBackendSet.backends.each { existingBackend ->
         backends << Details.of(existingBackend)
       }
-        
+
       UpdateBackendSetDetails updateDetails = UpdateBackendSetDetails.builder()
         .policy(defaultBackendSet.policy)
         .healthChecker(Details.of(defaultBackendSet.healthChecker))
