@@ -16,6 +16,7 @@ import com.oracle.bmc.auth.AuthenticationDetailsProvider
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider
 import com.oracle.bmc.auth.SimplePrivateKeySupplier
 import com.oracle.bmc.core.ComputeClient
+import com.oracle.bmc.core.ComputeManagementClient
 import com.oracle.bmc.core.VirtualNetworkClient
 import com.oracle.bmc.identity.IdentityClient
 import com.oracle.bmc.identity.requests.ListAvailabilityDomainsRequest
@@ -43,6 +44,7 @@ class OracleNamedAccountCredentials implements AccountCredentials<Object> {
   ObjectStorageClient objectStorageClient
   IdentityClient identityClient
   LoadBalancerClient loadBalancerClient
+  ComputeManagementClient computeManagementClient
 
   OracleNamedAccountCredentials(String name,
                                     String environment,
@@ -88,6 +90,8 @@ class OracleNamedAccountCredentials implements AccountCredentials<Object> {
     this.identityClient.setRegion(desiredRegion)
     this.loadBalancerClient = new LoadBalancerClient(provider)
     this.loadBalancerClient.setRegion(desiredRegion)
+    this.computeManagementClient = new ComputeManagementClient(provider)
+    this.computeManagementClient.setRegion(desiredRegion)
     this.regions = [new OracleRegion(name: desiredRegion.regionId,
       availabilityZones: this.identityClient.listAvailabilityDomains(ListAvailabilityDomainsRequest.builder()
         .compartmentId(this.compartmentId)

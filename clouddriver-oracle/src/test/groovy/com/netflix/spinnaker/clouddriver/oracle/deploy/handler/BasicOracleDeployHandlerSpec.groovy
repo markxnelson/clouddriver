@@ -21,13 +21,6 @@ import com.netflix.spinnaker.clouddriver.oracle.service.servergroup.OracleServer
 import com.oracle.bmc.core.ComputeClient
 import com.oracle.bmc.core.VirtualNetworkClient
 import com.oracle.bmc.loadbalancer.LoadBalancerClient
-import com.oracle.bmc.loadbalancer.model.BackendSet
-import com.oracle.bmc.loadbalancer.model.HealthChecker
-import com.oracle.bmc.loadbalancer.model.Listener
-import com.oracle.bmc.loadbalancer.model.LoadBalancer
-import com.oracle.bmc.loadbalancer.responses.CreateBackendSetResponse
-import com.oracle.bmc.loadbalancer.responses.GetLoadBalancerResponse
-import com.oracle.bmc.loadbalancer.responses.UpdateBackendSetResponse
 import spock.lang.Specification
 
 class BasicOracleDeployHandlerSpec extends Specification {
@@ -59,7 +52,7 @@ class BasicOracleDeployHandlerSpec extends Specification {
     desc.region = "us-phoenix-1"
     desc.loadBalancerId = "ocid.lb.oc1..1918273"
     desc.sshAuthorizedKeys = SSHKeys
-    desc.backendSetName = "myBackendSet"
+    desc.backendSetName = "myTestBackendSet"
     def loadBalancerClient = Mock(LoadBalancerClient)
     creds.loadBalancerClient >> loadBalancerClient
     def computeClient = Mock(ComputeClient)
@@ -88,17 +81,25 @@ class BasicOracleDeployHandlerSpec extends Specification {
       OracleServerGroup sgArgument = (OracleServerGroup) args[1]
       assert sgArgument.launchConfig.get("sshAuthorizedKeys") == SSHKeys
     }
+    1 * sgService.updateServerGroup(_) >> { args ->
+      OracleServerGroup sgArg = (OracleServerGroup) args[0]
+      assert sgArg.backendSetName == desc.backendSetName
+    }
     res != null
     res.serverGroupNames == ["us-phoenix-1:foo-dev-v002"]
-    1 * loadBalancerClient.getLoadBalancer(_) >> GetLoadBalancerResponse.builder()
-      .loadBalancer(LoadBalancer.builder()
-      .listeners(["foo-dev": Listener.builder()
-      .defaultBackendSetName("myBackendSet").build()])
-      .backendSets(["myBackendSet": BackendSet.builder()
-      .healthChecker(HealthChecker.builder().build())
-      .build()]).build()).build()
-    1 * loadBalancerClient.updateBackendSet(_) >> UpdateBackendSetResponse.builder().opcWorkRequestId("wr1").build()
-    1 * OracleWorkRequestPoller.poll(_, _, _, loadBalancerClient) >> null
+    1 * sgService.updateLoadBalancer(*_) >> { args ->
+      OracleServerGroup sgArg = (OracleServerGroup) args[1]
+      assert sgArg.backendSetName == desc.backendSetName
+    }
+//    1 * loadBalancerClient.getLoadBalancer(_) >> GetLoadBalancerResponse.builder()
+//      .loadBalancer(LoadBalancer.builder()
+//      .listeners(["foo-dev": Listener.builder()
+//      .defaultBackendSetName("myBackendSet").build()])
+//      .backendSets(["myBackendSet": BackendSet.builder()
+//      .healthChecker(HealthChecker.builder().build())
+//      .build()]).build()).build()
+//    1 * loadBalancerClient.updateBackendSet(_) >> UpdateBackendSetResponse.builder().opcWorkRequestId("wr1").build()
+//    1 * OracleWorkRequestPoller.poll(_, _, _, loadBalancerClient) >> null
     1 * sgProvider.getServerGroup(_, _, _) >> sgViewMock
     sgViewMock.instanceCounts >> instanceCounts
   }

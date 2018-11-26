@@ -21,4 +21,16 @@ class ResizeOracleServerGroupDescription extends AbstractOracleCredentialsDescri
   ServerGroup.Capacity capacity = new ServerGroup.Capacity()
   //targetSize takes precedence if targetSize and capacity.desired are both specified.
   Integer targetSize
+
+  public int targetSize() {
+    if (targetSize != null) {
+      return targetSize;
+    } else {
+      if (capacity != null && capacity.getDesired() != null) {
+        return capacity.getDesired();
+      } else {
+        return 0;
+      }
+    }
+  }
 }

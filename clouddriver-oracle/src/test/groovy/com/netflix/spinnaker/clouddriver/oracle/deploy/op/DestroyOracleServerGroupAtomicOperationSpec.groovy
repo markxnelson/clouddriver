@@ -18,10 +18,7 @@ import com.netflix.spinnaker.clouddriver.oracle.security.OracleNamedAccountCrede
 import com.netflix.spinnaker.clouddriver.oracle.service.servergroup.OracleServerGroupService
 import com.oracle.bmc.loadbalancer.LoadBalancerClient
 import com.oracle.bmc.loadbalancer.model.*
-import com.oracle.bmc.loadbalancer.requests.UpdateBackendSetRequest
 import com.oracle.bmc.loadbalancer.responses.GetLoadBalancerResponse
-import com.oracle.bmc.loadbalancer.responses.UpdateBackendSetResponse
-import groovy.ui.SystemOutputInterceptor
 import spock.lang.Specification
 
 class DestroyOracleServerGroupAtomicOperationSpec extends Specification {
@@ -49,18 +46,23 @@ class DestroyOracleServerGroupAtomicOperationSpec extends Specification {
     1 * loadBalancerClient.getLoadBalancer(_) >> GetLoadBalancerResponse.builder().loadBalancer(
       LoadBalancer.builder().backendSets(['myBackendSet': BackendSet.builder().backends(
         backends.collect { Backend.builder().ipAddress(it).build() } ).build()]).build()).build()
-    1 * sgService.getServerGroup(_, _, "sg1") >> 
-      new OracleServerGroup(loadBalancerId: "ocid.lb.oc1..12345", backendSetName: 'myBackendSet', 
+    1 * sgService.getServerGroup(_, _, "sg1") >>
+      new OracleServerGroup(loadBalancerId: "ocid.lb.oc1..12345", backendSetName: 'myBackendSet',
         instances: srvGroup.collect {new OracleInstance(id: it, privateIp: it)} as Set)
     1 * sgService.destroyServerGroup(_, _, "sg1")
-    1 * loadBalancerClient.updateBackendSet(_) >> { args ->
-      UpdateBackendSetRequest req = (UpdateBackendSetRequest) args[0]
-      def updatedBackendSet = req.updateBackendSetDetails.backends.collect {it.ipAddress}
-      assert updatedBackendSet.size() == 2
-      assert updatedBackendSet.contains('10.1.20.1')
-      assert updatedBackendSet.contains('10.1.20.3')
-      UpdateBackendSetResponse.builder().opcWorkRequestId("wr1").build()
+    1 * sgService.updateLoadBalancer(*_) >> { args ->
+      OracleServerGroup sg = args[1]
+      args[2].size() == srvGroup.size() //toGo
+      args[3].size() == 0 //newGroup
     }
-    1 * OracleWorkRequestPoller.poll("wr1", _, _, loadBalancerClient) >> null
+//    1 * loadBalancerClient.updateBackendSet(_) >> { args ->
+//      UpdateBackendSetRequest req = (UpdateBackendSetRequest) args[0]
+//      def updatedBackendSet = req.updateBackendSetDetails.backends.collect {it.ipAddress}
+//      assert updatedBackendSet.size() == 2
+//      assert updatedBackendSet.contains('10.1.20.1')
+//      assert updatedBackendSet.contains('10.1.20.3')
+//      UpdateBackendSetResponse.builder().opcWorkRequestId("wr1").build()
+//    }
+//    1 * OracleWorkRequestPoller.poll("wr1", _, _, loadBalancerClient) >> null
   }
 }

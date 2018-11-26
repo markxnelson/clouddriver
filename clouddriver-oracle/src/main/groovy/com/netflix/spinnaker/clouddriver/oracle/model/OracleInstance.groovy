@@ -9,13 +9,14 @@
 
 package com.netflix.spinnaker.clouddriver.oracle.model
 
-import java.io.Serializable
 import com.netflix.spinnaker.clouddriver.model.HealthState
 import com.netflix.spinnaker.clouddriver.model.Instance
+import com.oracle.bmc.core.model.Instance.LifecycleState
 
 class OracleInstance implements Instance, Serializable {
   String name
   HealthState healthState
+  LifecycleState lifecycleState
   Long launchTime
   String zone
   List<Map<String, Object>> health

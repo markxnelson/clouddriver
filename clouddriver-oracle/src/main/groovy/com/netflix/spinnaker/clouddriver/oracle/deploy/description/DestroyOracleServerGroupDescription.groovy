@@ -16,4 +16,6 @@ class DestroyOracleServerGroupDescription extends AbstractOracleCredentialsDescr
   String accountName
   String region
   String serverGroupName
+  String instancePoolId;
+  String instanceConfigId;
 }

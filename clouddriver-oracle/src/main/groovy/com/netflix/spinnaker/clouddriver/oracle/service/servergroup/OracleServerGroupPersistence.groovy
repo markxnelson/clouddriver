@@ -10,16 +10,18 @@ package com.netflix.spinnaker.clouddriver.oracle.service.servergroup
 
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.ser.FilterProvider
+import com.fasterxml.jackson.databind.ser.impl.SimpleBeanPropertyFilter
+import com.fasterxml.jackson.databind.ser.impl.SimpleFilterProvider
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.security.OracleNamedAccountCredentials
 import com.oracle.bmc.model.BmcException
 import com.oracle.bmc.objectstorage.model.CreateBucketDetails
 import com.oracle.bmc.objectstorage.requests.*
+import java.nio.charset.Charset
+import org.springframework.stereotype.Component
 import groovy.transform.Synchronized
 import groovy.util.logging.Slf4j
-import org.springframework.stereotype.Component
-
-import java.nio.charset.Charset
 
 /**
  * Uses Object Storage as a persistent store for server group data. This is a temporary work around
@@ -55,7 +57,8 @@ class OracleServerGroupPersistence {
 
   private final Charset UTF_8_CHARSET = Charset.forName("UTF-8")
 
-  private final ObjectMapper objectMapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+  private final FilterProvider filters = new SimpleFilterProvider().addFilter("explicitlySetFilter", (SimpleBeanPropertyFilter) com.oracle.bmc.http.internal.ExplicitlySetFilter.INSTANCE)
+  private final ObjectMapper objectMapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false).setFilterProvider(filters)
 
   /**
    * Lists the server group names for the specified account.
@@ -170,12 +173,12 @@ class OracleServerGroupPersistence {
   }
 
   private String serverGroupToJson(OracleServerGroup sg) {
-    // Save these to re-assign after ObjectMapper does its work.
-    def credentials = sg.credentials
-    sg.credentials = null
-    def json = objectMapper.writeValueAsString(sg);
-    sg.credentials = credentials
-    return json
+//    // Save these to re-assign after ObjectMapper does its work.
+//    def credentials = sg.credentials
+//    sg.credentials = null
+    return objectMapper.writeValueAsString(sg);
+//    sg.credentials = credentials
+//    return json
   }
 
   private OracleServerGroup jsonToServerGroup(String json, OracleNamedAccountCredentials creds) {
@@ -211,7 +214,7 @@ class OracleServerGroupPersistence {
           String json
           inputStream.withStream { json = inputStream.getText("UTF-8") }
           sg = jsonToServerGroup(json, ctx.creds)
-          return sg 
+          return sg
         } catch (BmcException e) {
           if (e.getStatusCode() == 404) {
             log.warn(e.getLocalizedMessage())
