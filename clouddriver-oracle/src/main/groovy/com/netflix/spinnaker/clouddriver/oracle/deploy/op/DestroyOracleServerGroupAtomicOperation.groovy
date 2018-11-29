@@ -16,6 +16,11 @@ import com.netflix.spinnaker.clouddriver.oracle.deploy.description.DestroyOracle
 import com.netflix.spinnaker.clouddriver.oracle.model.Details
 import com.netflix.spinnaker.clouddriver.oracle.service.servergroup.OracleServerGroupService
 import com.netflix.spinnaker.clouddriver.orchestration.AtomicOperation
+import com.oracle.bmc.core.ComputeManagementClient
+import com.oracle.bmc.core.requests.ListInstancePoolsRequest
+import com.oracle.bmc.core.requests.TerminateInstancePoolRequest
+import com.oracle.bmc.core.responses.ListInstancePoolsResponse
+import com.oracle.bmc.core.responses.TerminateInstancePoolResponse
 import com.oracle.bmc.loadbalancer.model.BackendSet
 import com.oracle.bmc.loadbalancer.model.LoadBalancer
 import com.oracle.bmc.loadbalancer.model.UpdateBackendSetDetails
@@ -39,6 +44,33 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
 
   DestroyOracleServerGroupAtomicOperation(DestroyOracleServerGroupDescription description) {
     this.description = description
+  }
+
+  Void terminateInstancePool(List priorOutputs) {
+    ComputeManagementClient client = description.credentials.computeManagementClient
+    if (description.instancePoolId) {
+      TerminateInstancePoolRequest termReq =
+          TerminateInstancePoolRequest.builder().instancePoolId(description.instancePoolId).build()
+      TerminateInstancePoolResponse termRes = client.terminateInstancePool(termReq)
+//      System.out.println("~~~ TerminateInstancePool... " + termRes.getOpcRequestId())
+    } else {
+      ListInstancePoolsRequest listReq = ListInstancePoolsRequest.builder()
+          .compartmentId(description.credentials.compartmentId).build(); //TODO: displayName(desc.getServerGroupName())
+      String sgName = description.serverGroupName
+      ListInstancePoolsResponse listRes = client.listInstancePools(listReq)
+    System.out.println("~~~~~~~~~~~~~~~~ sgName " + sgName)
+      listRes.items.each { instancePool ->
+    System.out.println("~~~~~~~~~~~~~~~~ instancePool.displayName " + instancePool.displayName)
+        if (sgName != null && sgName.equals(instancePool.displayName)) {
+          task.updateStatus(BASE_PHASE, "TerminateInstancePoolRequest " + instancePool.displayName)
+    System.out.println(" !!!!!! found displayName " + instancePool.displayName + ' ' + sgName)
+          TerminateInstancePoolResponse termRes = client.terminateInstancePool(
+            TerminateInstancePoolRequest.builder().instancePoolId(instancePool.id).build())
+          task.updateStatus(BASE_PHASE, "TerminateInstancePoolResponse " + termRes.getOpcRequestId())
+        }
+      }
+    }
+    return null;
   }
 
   @Override
@@ -96,7 +128,14 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
     }
 
     task.updateStatus BASE_PHASE, "Destroying server group: " + description.serverGroupName
-    oracleServerGroupService.destroyServerGroup(task, description.credentials, description.serverGroupName)
+    System.out.println("~~~~~~~~~~~~~~~~ serverGroup.launchConfig.placements " + serverGroup?.launchConfig?.placements?.size())
+    System.out.println("     launchConfig.placements " + serverGroup?.launchConfig?.placements)
+    if (serverGroup?.launchConfig?.placements && serverGroup?.launchConfig?.placements.size() > 0) {
+      terminateInstancePool(priorOutputs)
+      oracleServerGroupService.deleteServerGroup(serverGroup)
+    } else {
+      oracleServerGroupService.destroyServerGroup(task, description.credentials, description.serverGroupName)
+    }
 
     task.updateStatus BASE_PHASE, "Completed server group destruction"
     return null

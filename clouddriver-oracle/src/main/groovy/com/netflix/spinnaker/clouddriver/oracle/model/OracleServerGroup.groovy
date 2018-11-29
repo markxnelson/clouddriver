@@ -35,6 +35,7 @@ class OracleServerGroup {
   String loadBalancerId
   String backendSetName
   String cloudProvider
+  String instancePoolId
   OracleNamedAccountCredentials credentials
 
   @JsonIgnore

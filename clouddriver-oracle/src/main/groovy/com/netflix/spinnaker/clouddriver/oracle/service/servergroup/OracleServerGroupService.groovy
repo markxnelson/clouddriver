@@ -31,4 +31,6 @@ interface OracleServerGroupService {
   public void enableServerGroup(Task task, OracleNamedAccountCredentials creds, String serverGroupName)
 
   public void updateServerGroup(OracleServerGroup sg)
+
+  public void deleteServerGroup(OracleServerGroup sg)
 }

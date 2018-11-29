@@ -67,9 +67,9 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
   }
 
   @Override
-  void createServerGroup(Task task, OracleServerGroup sg) {  
+  void createServerGroup(Task task, OracleServerGroup sg) {
     def instances = [] as Set
-    //if overList createInstance throws com.oracle.bmc.model.BmcException: (400, LimitExceeded, false) 
+    //if overList createInstance throws com.oracle.bmc.model.BmcException: (400, LimitExceeded, false)
     def errors = []
     try {
       for (int i = 0; i < sg.targetSize; i++) {
@@ -79,7 +79,7 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
       task.updateStatus DEPLOY, "Creating instance failed: $e"
       errors << e
     }
-    if (errors) {    
+    if (errors) {
       if (instances.size() > 0) {
         task.updateStatus DEPLOY, "ServerGroup created with errors: $errors"
       } else {
@@ -93,8 +93,13 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
   }
 
   @Override
-  void updateServerGroup(OracleServerGroup sg) {  
+  void updateServerGroup(OracleServerGroup sg) {
     persistence.upsertServerGroup(sg)
+  }
+
+  @Override
+  void deleteServerGroup(OracleServerGroup sg) {
+    persistence.deleteServerGroup(sg)
   }
 
   @Override
@@ -103,7 +108,7 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
     def serverGroup = persistence.getServerGroupByName(persistenceCtx, serverGroupName)
     if (serverGroup != null) {
       task.updateStatus DESTROY, "Found server group: $serverGroup.name"
-      if (serverGroup.instances && serverGroup.instances.size() > 0) {   
+      if (serverGroup.instances && serverGroup.instances.size() > 0) {
         for (int i = 0; i < serverGroup.targetSize; i++) {
           def instance = serverGroup.instances[i]
           if (instance) {
@@ -220,8 +225,8 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
     return instance
   }
 
-  private void increase(Task task, OracleServerGroup serverGroup, int targetSize) {    
-    int currentSize = serverGroup.targetSize; 
+  private void increase(Task task, OracleServerGroup serverGroup, int targetSize) {
+    int currentSize = serverGroup.targetSize;
     def instances = [] as Set
     def errors = []
     for (int i = currentSize; i < targetSize; i++) {
@@ -233,7 +238,7 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
         errors << e
       }
     }
-    if (errors) {    
+    if (errors) {
       if (instances.size() > 0) {
         task.updateStatus RESIZE, "ServerGroup resize with errors: $errors"
       } else {
@@ -246,7 +251,7 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
     serverGroup.targetSize = currentSize + instances.size()
   }
 
-  private void decrease(Task task, OracleServerGroup serverGroup, int targetSize) {   
+  private void decrease(Task task, OracleServerGroup serverGroup, int targetSize) {
     def instances = [] as Set
     int currentSize = serverGroup.targetSize;
     for (int i = targetSize; i < currentSize; i++) {
