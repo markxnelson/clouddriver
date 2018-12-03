@@ -16,6 +16,8 @@ import com.netflix.spinnaker.clouddriver.model.Instance
 import com.netflix.spinnaker.clouddriver.model.ServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.OracleCloudProvider
 import com.netflix.spinnaker.clouddriver.oracle.security.OracleNamedAccountCredentials
+import com.oracle.bmc.core.model.CreateInstancePoolPlacementConfigurationDetails
+import com.oracle.bmc.core.model.InstancePool
 import groovy.transform.Canonical
 
 @Canonical
@@ -36,7 +38,14 @@ class OracleServerGroup {
   String backendSetName
   String cloudProvider
   String instancePoolId
+  String instanceConfigurationId
+
+  //TODO should this be @JsonIgnore
   OracleNamedAccountCredentials credentials
+  @JsonIgnore
+  List<CreateInstancePoolPlacementConfigurationDetails> placements
+  @JsonIgnore
+  InstancePool instancePool
 
   @JsonIgnore
   View getView() {

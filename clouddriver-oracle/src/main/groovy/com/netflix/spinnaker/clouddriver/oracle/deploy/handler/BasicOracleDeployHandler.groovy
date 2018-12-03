@@ -159,18 +159,17 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
       launchConfig: launchConfig,
       targetSize: targetSize,
       credentials: description.credentials,
-      loadBalancerId: description.loadBalancerId
+      loadBalancerId: description.loadBalancerId,
+      placements: description.placements
     )
 
     if (description.placements) {
-System.out.println('~~~~ CreateInstancePoolAtomicOperation in ADs: ' + description.placements.size())
-//      CreateInstancePoolAtomicOperation createInstancePool = new CreateInstancePoolAtomicOperation(description)
-//      createInstancePool.operate(priorOutputs)
       InstancePool inpool = createInstancePool(serverGroupName, description)
       sg.instancePoolId = inpool.id
+      sg.instanceConfigurationId = inpool.instanceConfigurationId
+      sg.instancePool = inpool
 System.out.println('~~~~~~~ CreateInstancePool sg.instancePoolId : ' + sg.instancePoolId )
-System.out.println('~~~~~~~  lifecycleState : ' + inpool.lifecycleState )
-System.out.println('~~~~~~~      targetSize : ' + targetSize )
+System.out.println('~~~~~~~                       lifecycleState : ' + inpool.lifecycleState )
       oracleServerGroupService.updateServerGroup(sg)
       sg = updateInstances(description, sg, inpool, targetSize)
       oracleServerGroupService.updateServerGroup(sg)
