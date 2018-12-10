@@ -499,7 +499,7 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       .instancePool(InstancePool.builder().build()).build()
 
     when:
-    service.poolInstances(task, sg, 0, 1)
+    service.pollInstances(task, sg, 0, 1)
 
     then:
     1 * computeManagementClient.getInstancePool(_) >> GetInstancePoolResponse.builder()

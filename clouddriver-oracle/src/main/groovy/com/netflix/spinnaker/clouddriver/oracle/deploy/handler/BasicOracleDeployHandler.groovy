@@ -87,33 +87,19 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
     task.updateStatus BASE_PHASE, "Done creating server group $serverGroupName."
 
     if (description.loadBalancerId) {
-      // get LB
-//      LoadBalancer lb = description.credentials.loadBalancerClient.getLoadBalancer(
-//        GetLoadBalancerRequest.builder().loadBalancerId(description.loadBalancerId).build()).loadBalancer
-//
-//      task.updateStatus BASE_PHASE, "Updating LoadBalancer ${lb.displayName} with backendSet ${description.backendSetName}"
-//      List<String> privateIps = []
-
-System.out.println("~~~ !notIP?? !description.placements1 " + !description.placements)
-
-      if (!description.placements) {
+      if (!description.placements) { //for non-instancePool
         // wait for instances to go into running state
         ServerGroup sgView
         long finishBy = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(30)
         boolean allUp = false
-      System.out.println("~~~ !notIP?? 2 " + !description.placements)
         while (!allUp && System.currentTimeMillis() < finishBy) {
           sgView = clusterProvider.getServerGroup(sg.credentials.name, sg.region, sg.name)
-          if (sgView && sgView.instanceCounts) {
-      System.out.println("~~~ sgView.instanceCounts.up    " + sgView.instanceCounts.up)
-      System.out.println("~~~ sgView.instanceCounts.total " + sgView.instanceCounts.total)
-          }
           if (sgView && (sgView.instanceCounts.up == sgView.instanceCounts.total)) {
             task.updateStatus BASE_PHASE, "All instances are Up"
             allUp = true
             break
           }
-          task.updateStatus BASE_PHASE, "Waiting for server group instances to get to Up state"
+          task.updateStatus BASE_PHASE, "Waiting for serverGroup instances(${sgView.instanceCounts.up}) to get to Up(${sgView.instanceCounts.total}) state"
           Thread.sleep(5000)
         }
         if (!allUp) {
@@ -134,43 +120,13 @@ System.out.println("~~~ !notIP?? !description.placements1 " + !description.place
               .vnicId(vnicAttach.vnicId).build()).vnic
             if (vnic.privateIp) {
               instance.privateIp = vnic.privateIp
-      System.out.println("~~~ instance.privateIp    " + instance.privateIp )
-//              privateIps << vnic.privateIp
             }
           }
         }
-      System.out.println("~~~ sg.instances   " + sg.instances)
-      } else {
-//        privateIps = sg.instances.findAll{ it.privateIp != null }.collect{ it.privateIp } as List
       }
       sg.backendSetName = description.backendSetName
       oracleServerGroupService.updateServerGroup(sg)
       oracleServerGroupService.updateLoadBalancer(task, sg, [] as Set, sg.instances)
-
-//      task.updateStatus BASE_PHASE, "Adding IP addresses ${privateIps} to ${description.backendSetName}"
-//      oracleServerGroupService.updateServerGroup(sg)
-//      // update listener and backendSet
-//      BackendSet defaultBackendSet = lb.backendSets.get(description.backendSetName)
-//      // new backends from the serverGroup
-//      List<BackendDetails> backends = privateIps.collect { ip ->
-//        BackendDetails.builder().ipAddress(ip).port(defaultBackendSet.healthChecker.port).build()
-//      }
-//      //merge with existing backendSet
-//      defaultBackendSet.backends.each { existingBackend ->
-//        backends << Details.of(existingBackend)
-//      }
-//
-//      UpdateBackendSetDetails updateDetails = UpdateBackendSetDetails.builder()
-//        .policy(defaultBackendSet.policy)
-//        .healthChecker(Details.of(defaultBackendSet.healthChecker))
-//        .backends(backends).build()
-//      task.updateStatus BASE_PHASE, "Updating backendSet ${description.backendSetName}"
-//      UpdateBackendSetResponse updateRes = description.credentials.loadBalancerClient.updateBackendSet(
-//        UpdateBackendSetRequest.builder().loadBalancerId(description.loadBalancerId)
-//        .backendSetName(description.backendSetName).updateBackendSetDetails(updateDetails).build())
-//
-//      // wait for backend set to be created
-//      OracleWorkRequestPoller.poll(updateRes.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
     }
     DeploymentResult deploymentResult = new DeploymentResult()
     deploymentResult.serverGroupNames = ["$region:$serverGroupName".toString()]

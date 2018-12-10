@@ -23,15 +23,14 @@ import com.oracle.bmc.core.requests.ListImagesRequest
 import com.oracle.bmc.core.requests.ListShapesRequest
 import groovy.util.logging.Slf4j
 
-import static com.netflix.spinnaker.clouddriver.oracle.cache.Keys.Namespace.IMAGES
-import static com.netflix.spinnaker.clouddriver.oracle.cache.Keys.getImageKey
-
 @Slf4j
 class OracleImageCachingAgent extends AbstractOracleCachingAgent {
 
   final Set<AgentDataType> providedDataTypes = [
     AgentDataType.Authority.AUTHORITATIVE.forType(Keys.Namespace.IMAGES.ns)
   ] as Set
+
+  Map<String, List<Shape>> cache = [:]
 
   OracleImageCachingAgent(String clouddriverUserAgentApplicationName,
                               OracleNamedAccountCredentials credentials,
@@ -52,23 +51,27 @@ class OracleImageCachingAgent extends AbstractOracleCachingAgent {
     return response.items
   }
 
+  String imageKey(String compartmentId, String imageId) {
+    compartmentId + "-" + imageId
+  }
   private CacheResult buildCacheResult(List<Image> imageList) {
-    log.info("Describing items in ${agentType}")
-
+    log.info("Describing cached items in ${agentType}")
     List<CacheData> data = imageList.collect { Image image ->
       if (image.lifecycleState != Image.LifecycleState.Available) {
         return null
       }
       Map<String, Object> attributes = objectMapper.convertValue(image, ATTRIBUTES)
-
-      // Add Shapes to the image data
-      def shapesResponse = credentials.computeClient.listShapes(ListShapesRequest.builder()
-        .compartmentId(credentials.compartmentId)
-        .imageId(image.id)
-        .build())
-
-      // Shapes are per-AD so we get multiple copies of the compatible shapes
-      List<Shape> unique = shapesResponse?.items?.unique { it.shape }
+      String imageKey = imageKey(credentials.compartmentId, image.id)
+      List<Shape> unique = cache.get(imageKey)
+      if (unique == null) {
+        def shapesResponse = credentials.computeClient.listShapes(ListShapesRequest.builder()
+          .compartmentId(credentials.compartmentId)
+          .imageId(image.id)
+          .build())
+        // Shapes are per-AD so we get multiple copies of the compatible shapes
+        unique = shapesResponse?.items?.unique { it.shape }
+        cache.put(imageKey, unique)
+      }
       attributes.put("compatibleShapes", unique.collect { it.shape })
 
       new DefaultCacheData(

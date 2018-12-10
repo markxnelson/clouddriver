@@ -100,7 +100,7 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
   void createServerGroup(Task task, OracleServerGroup sg) {
     if(sg.placements) {
       createInstancePool(task, sg)
-      poolInstances(task, sg)
+      pollInstances(task, sg)
     } else {
       createInstances(task, sg)
     }
@@ -125,10 +125,8 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
         task.updateStatus DEPLOY, "ServerGroup creation failed: $errors"
       }
     }
-    System.out.println("~~~ createInstances1 " + instances)
     if (instances.size() > 0) {
       sg.instances = instances
-    System.out.println("~~~ createInstances2 " + sg.instances)
       persistence.upsertServerGroup(sg)
     }
   }
@@ -386,7 +384,7 @@ System.out.println( '~~~   createInstancePoolDetails: ' + createInstancePoolDeta
     poolInstances(task, sg, 5000, CreateInstancePoolTimeout)
   }
 
-  Set<OracleInstance> poolInstances(Task task, OracleServerGroup sg,
+  Set<OracleInstance> pollInstances(Task task, OracleServerGroup sg,
     int pollingIntervalMillis, int timeoutMinutes) {
     String compartmentId = sg.credentials.compartmentId
     long finishBy = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(timeoutMinutes)
@@ -445,26 +443,18 @@ System.out.println( '~~~ sg.targetSize ' +  sg.targetSize)
     Set<OracleInstance> oldInstances, Set<OracleInstance> newInstances) {
     Set<String> newGroup = addressesOf(newInstances)
     Set<String> oldGroup = addressesOf(oldInstances)
-    System.out.println("~~~ oldIns " + oldInstances)
-    System.out.println("~~~ newIns " + newInstances)
-    System.out.println("~~~ oldGroup " + oldGroup)
-    System.out.println("~~~ newGroup " + newGroup + " " + newGroup.equals(oldGroup))
     if (newGroup.equals(oldGroup)) {
       return
     }
     task.updateStatus UpdateLB, "Getting LoadBalancer details " + serverGroup?.loadBalancerId
     LoadBalancer loadBalancer = serverGroup?.loadBalancerId? serverGroup.credentials.loadBalancerClient.getLoadBalancer(
       GetLoadBalancerRequest.builder().loadBalancerId(serverGroup.loadBalancerId).build())?.getLoadBalancer() : null
-    System.out.println("~~~ loadBalancer " + loadBalancer)
     if (loadBalancer) {
       try {
-    System.out.println("~~~ serverGroup.backendSetName " + serverGroup.backendSetName)
-    System.out.println("~~~   loadBalancer.backendSets " + loadBalancer.backendSets)
         BackendSet backendSet = serverGroup.backendSetName? loadBalancer.backendSets.get(serverGroup.backendSetName) : null
         if (backendSet == null && loadBalancer.backendSets.size() == 1) {
           backendSet = loadBalancer.backendSets.values().first();
         }
-    System.out.println("~~~ backendSet " + backendSet)
         if (backendSet) {
           // existing backends but not in the oldGroup(to be removed)
           List<BackendDetails> backends = backendSet.backends.findAll { !oldGroup.contains(it.ipAddress) } .collect { Details.of(it) }
