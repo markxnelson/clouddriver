@@ -52,18 +52,14 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
       TerminateInstancePoolRequest termReq =
           TerminateInstancePoolRequest.builder().instancePoolId(description.instancePoolId).build()
       TerminateInstancePoolResponse termRes = client.terminateInstancePool(termReq)
-//      System.out.println("~~~ TerminateInstancePool... " + termRes.getOpcRequestId())
     } else {
       ListInstancePoolsRequest listReq = ListInstancePoolsRequest.builder()
           .compartmentId(description.credentials.compartmentId).build(); //TODO: displayName(desc.getServerGroupName())
       String sgName = description.serverGroupName
       ListInstancePoolsResponse listRes = client.listInstancePools(listReq)
-    System.out.println("~~~~~~~~~~~~~~~~ sgName " + sgName)
       listRes.items.each { instancePool ->
-    System.out.println("~~~~~~~~~~~~~~~~ instancePool.displayName " + instancePool.displayName)
         if (sgName != null && sgName.equals(instancePool.displayName)) {
           task.updateStatus(BASE_PHASE, "TerminateInstancePoolRequest " + instancePool.displayName)
-    System.out.println(" !!!!!! found displayName " + instancePool.displayName + ' ' + sgName)
           TerminateInstancePoolResponse termRes = client.terminateInstancePool(
             TerminateInstancePoolRequest.builder().instancePoolId(instancePool.id).build())
           task.updateStatus(BASE_PHASE, "TerminateInstancePoolResponse " + termRes.getOpcRequestId())
@@ -128,8 +124,6 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
     }
 
     task.updateStatus BASE_PHASE, "Destroying server group: " + description.serverGroupName
-    System.out.println("~~~~~~~~~~~~~~~~ serverGroup.launchConfig.placements " + serverGroup?.launchConfig?.placements?.size())
-    System.out.println("     launchConfig.placements " + serverGroup?.launchConfig?.placements)
     if (serverGroup?.launchConfig?.placements && serverGroup?.launchConfig?.placements.size() > 0) {
       terminateInstancePool(priorOutputs)
       oracleServerGroupService.deleteServerGroup(serverGroup)

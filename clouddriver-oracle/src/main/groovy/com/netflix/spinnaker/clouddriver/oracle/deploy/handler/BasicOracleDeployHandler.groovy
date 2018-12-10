@@ -15,21 +15,12 @@ import com.netflix.spinnaker.clouddriver.deploy.DeployHandler
 import com.netflix.spinnaker.clouddriver.deploy.DeploymentResult
 import com.netflix.spinnaker.clouddriver.model.ServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.deploy.OracleServerGroupNameResolver
-import com.netflix.spinnaker.clouddriver.oracle.deploy.OracleWorkRequestPoller
 import com.netflix.spinnaker.clouddriver.oracle.deploy.description.BasicOracleDeployDescription
-import com.netflix.spinnaker.clouddriver.oracle.model.Details
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.provider.view.OracleClusterProvider
 import com.netflix.spinnaker.clouddriver.oracle.service.servergroup.OracleServerGroupService
 import com.oracle.bmc.core.requests.GetVnicRequest
 import com.oracle.bmc.core.requests.ListVnicAttachmentsRequest
-import com.oracle.bmc.loadbalancer.model.BackendDetails
-import com.oracle.bmc.loadbalancer.model.BackendSet
-import com.oracle.bmc.loadbalancer.model.LoadBalancer
-import com.oracle.bmc.loadbalancer.model.UpdateBackendSetDetails
-import com.oracle.bmc.loadbalancer.requests.GetLoadBalancerRequest
-import com.oracle.bmc.loadbalancer.requests.UpdateBackendSetRequest
-import com.oracle.bmc.loadbalancer.responses.UpdateBackendSetResponse
 import java.util.concurrent.TimeUnit
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
@@ -97,19 +88,26 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
 
     if (description.loadBalancerId) {
       // get LB
-      LoadBalancer lb = description.credentials.loadBalancerClient.getLoadBalancer(
-        GetLoadBalancerRequest.builder().loadBalancerId(description.loadBalancerId).build()).loadBalancer
+//      LoadBalancer lb = description.credentials.loadBalancerClient.getLoadBalancer(
+//        GetLoadBalancerRequest.builder().loadBalancerId(description.loadBalancerId).build()).loadBalancer
+//
+//      task.updateStatus BASE_PHASE, "Updating LoadBalancer ${lb.displayName} with backendSet ${description.backendSetName}"
+//      List<String> privateIps = []
 
-      task.updateStatus BASE_PHASE, "Updating LoadBalancer ${lb.displayName} with backendSet ${description.backendSetName}"
-      List<String> privateIps = []
+System.out.println("~~~ !notIP?? !description.placements1 " + !description.placements)
 
       if (!description.placements) {
         // wait for instances to go into running state
         ServerGroup sgView
         long finishBy = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(30)
         boolean allUp = false
+      System.out.println("~~~ !notIP?? 2 " + !description.placements)
         while (!allUp && System.currentTimeMillis() < finishBy) {
           sgView = clusterProvider.getServerGroup(sg.credentials.name, sg.region, sg.name)
+          if (sgView && sgView.instanceCounts) {
+      System.out.println("~~~ sgView.instanceCounts.up    " + sgView.instanceCounts.up)
+      System.out.println("~~~ sgView.instanceCounts.total " + sgView.instanceCounts.total)
+          }
           if (sgView && (sgView.instanceCounts.up == sgView.instanceCounts.total)) {
             task.updateStatus BASE_PHASE, "All instances are Up"
             allUp = true
@@ -136,38 +134,43 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
               .vnicId(vnicAttach.vnicId).build()).vnic
             if (vnic.privateIp) {
               instance.privateIp = vnic.privateIp
-              privateIps << vnic.privateIp
+      System.out.println("~~~ instance.privateIp    " + instance.privateIp )
+//              privateIps << vnic.privateIp
             }
           }
         }
+      System.out.println("~~~ sg.instances   " + sg.instances)
       } else {
-        privateIps = sg.instances.collect { it.privateIp } as List
+//        privateIps = sg.instances.findAll{ it.privateIp != null }.collect{ it.privateIp } as List
       }
       sg.backendSetName = description.backendSetName
-      task.updateStatus BASE_PHASE, "Adding IP addresses ${privateIps} to ${description.backendSetName}"
       oracleServerGroupService.updateServerGroup(sg)
-      // update listener and backendSet
-      BackendSet defaultBackendSet = lb.backendSets.get(description.backendSetName)
-      // new backends from the serverGroup
-      List<BackendDetails> backends = privateIps.collect { ip ->
-        BackendDetails.builder().ipAddress(ip).port(defaultBackendSet.healthChecker.port).build()
-      }
-      //merge with existing backendSet
-      defaultBackendSet.backends.each { existingBackend ->
-        backends << Details.of(existingBackend)
-      }
+      oracleServerGroupService.updateLoadBalancer(task, sg, [] as Set, sg.instances)
 
-      UpdateBackendSetDetails updateDetails = UpdateBackendSetDetails.builder()
-        .policy(defaultBackendSet.policy)
-        .healthChecker(Details.of(defaultBackendSet.healthChecker))
-        .backends(backends).build()
-      task.updateStatus BASE_PHASE, "Updating backendSet ${description.backendSetName}"
-      UpdateBackendSetResponse updateRes = description.credentials.loadBalancerClient.updateBackendSet(
-        UpdateBackendSetRequest.builder().loadBalancerId(description.loadBalancerId)
-        .backendSetName(description.backendSetName).updateBackendSetDetails(updateDetails).build())
-
-      // wait for backend set to be created
-      OracleWorkRequestPoller.poll(updateRes.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
+//      task.updateStatus BASE_PHASE, "Adding IP addresses ${privateIps} to ${description.backendSetName}"
+//      oracleServerGroupService.updateServerGroup(sg)
+//      // update listener and backendSet
+//      BackendSet defaultBackendSet = lb.backendSets.get(description.backendSetName)
+//      // new backends from the serverGroup
+//      List<BackendDetails> backends = privateIps.collect { ip ->
+//        BackendDetails.builder().ipAddress(ip).port(defaultBackendSet.healthChecker.port).build()
+//      }
+//      //merge with existing backendSet
+//      defaultBackendSet.backends.each { existingBackend ->
+//        backends << Details.of(existingBackend)
+//      }
+//
+//      UpdateBackendSetDetails updateDetails = UpdateBackendSetDetails.builder()
+//        .policy(defaultBackendSet.policy)
+//        .healthChecker(Details.of(defaultBackendSet.healthChecker))
+//        .backends(backends).build()
+//      task.updateStatus BASE_PHASE, "Updating backendSet ${description.backendSetName}"
+//      UpdateBackendSetResponse updateRes = description.credentials.loadBalancerClient.updateBackendSet(
+//        UpdateBackendSetRequest.builder().loadBalancerId(description.loadBalancerId)
+//        .backendSetName(description.backendSetName).updateBackendSetDetails(updateDetails).build())
+//
+//      // wait for backend set to be created
+//      OracleWorkRequestPoller.poll(updateRes.getOpcWorkRequestId(), BASE_PHASE, task, description.credentials.loadBalancerClient)
     }
     DeploymentResult deploymentResult = new DeploymentResult()
     deploymentResult.serverGroupNames = ["$region:$serverGroupName".toString()]
