@@ -10,6 +10,9 @@ package com.netflix.spinnaker.clouddriver.oracle.service.servergroup
 
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.ser.FilterProvider
+import com.fasterxml.jackson.databind.ser.impl.SimpleBeanPropertyFilter
+import com.fasterxml.jackson.databind.ser.impl.SimpleFilterProvider
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.security.OracleNamedAccountCredentials
 import com.oracle.bmc.model.BmcException
@@ -54,7 +57,8 @@ class OracleServerGroupPersistence {
 
   private final Charset UTF_8_CHARSET = Charset.forName("UTF-8")
 
-  private final ObjectMapper objectMapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+  private final FilterProvider filters = new SimpleFilterProvider().addFilter("explicitlySetFilter", (SimpleBeanPropertyFilter) com.oracle.bmc.http.internal.ExplicitlySetFilter.INSTANCE)
+  private final ObjectMapper objectMapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false).setFilterProvider(filters)
 
   /**
    * Lists the server group names for the specified account.

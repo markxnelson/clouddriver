@@ -209,7 +209,8 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
     1 * persistence.upsertServerGroup(_) >> { args ->
       OracleServerGroup serverGroup = (OracleServerGroup) args[0]
       assert serverGroup.instances.size() == 4
-      assert serverGroup.targetSize == 4
+      // serverGroup.targetSize should be 5 as requested
+      assert serverGroup.targetSize == 5
     }
     resized == true
   }
@@ -463,33 +464,91 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       Instance.builder().timeCreated(new Date()).build()).build()
   }
 
-  def "poll instances"() {
+  def "poll instances 2 targeting 0"() {
     setup:
     def task = Mock(Task)
-    def creds = Mock(OracleNamedAccountCredentials)
-    def computeClient = Mock(ComputeClient)
-    def computeManagementClient = Mock(ComputeManagementClient)
-    VirtualNetworkClient networkClient = Mock(VirtualNetworkClient)
-    creds.getName() >> "foo"
-    creds.getRegion() >> Region.US_PHOENIX_1.regionId
-    creds.getComputeClient() >> computeClient
-    creds.getComputeManagementClient() >> computeManagementClient
-    creds.getNetworkClient() >> networkClient
+    def creds = mockCreds()
+    def computeClient = creds.computeClient
+    def computeManagementClient = creds.computeManagementClient
+    VirtualNetworkClient networkClient = creds.networkClient
+    def persistence = Mock(OracleServerGroupPersistence)
+    def service = new DefaultOracleServerGroupService(persistence)
+    def instances = ['129.1.1.1', '129.1.1.2']
+    def sg = new OracleServerGroup(
+      name: "scaling-v20",
+      region: creds.region,
+      zone: "ad1",
+      targetSize: 0,
+      credentials: creds,
+      instancePoolId: "ocid.instancePool.123",
+      disabled: false,
+      instances: instanceSet(instances as String[])
+    )
+    GetInstancePoolResponse res = GetInstancePoolResponse.builder()
+      .instancePool(InstancePool.builder().build()).build()
+
+    when:
+    service.poll(task, sg, 1, 1)
+
+    then:
+    1 * computeManagementClient.getInstancePool(_) >> GetInstancePoolResponse.builder()
+      .instancePool(InstancePool.builder().build()).build()
+    3 * computeManagementClient.listInstancePoolInstances(_) >>
+      listInstances(instances as String[]) >> listInstances(instances[1]) >> listInstances()
+    0 * computeClient.listVnicAttachments(_)
+    0 * networkClient.getVnic(_)
+  }
+
+  def "poll instances 3 targeting 1"() {
+    setup:
+    def task = Mock(Task)
+    def creds = mockCreds()
+    def computeClient = creds.computeClient
+    def computeManagementClient = creds.computeManagementClient
+    VirtualNetworkClient networkClient = creds.networkClient
+    def persistence = Mock(OracleServerGroupPersistence)
+    def service = new DefaultOracleServerGroupService(persistence)
+    def instances = ['129.1.1.1', '129.1.1.2', '129.1.1.3']
+    def sg = new OracleServerGroup(
+      name: "scaling-v31",
+      region: creds.region,
+      zone: "ad1",
+      targetSize: 1,
+      credentials: creds,
+      instancePoolId: "ocid.instancePool.123",
+      disabled: false,
+      instances: instanceSet(instances as String[])
+    )
+    GetInstancePoolResponse res = GetInstancePoolResponse.builder()
+      .instancePool(InstancePool.builder().build()).build()
+
+    when:
+    service.poll(task, sg, 1, 1)
+
+    then:
+    1 * computeManagementClient.getInstancePool(_) >> GetInstancePoolResponse.builder()
+      .instancePool(InstancePool.builder().build()).build()
+    3 * computeManagementClient.listInstancePoolInstances(_) >>
+      listInstances(instances as String[]) >>
+      listInstances(instances[1], instances[2]) >>
+      listInstances(instances[1])
+    0 * computeClient.listVnicAttachments(_)
+    0 * networkClient.getVnic(_)
+  }
+
+  def "poll instances 0 targeting 3"() {
+    setup:
+    def task = Mock(Task)
+    def creds = mockCreds()
+    def computeClient = creds.computeClient
+    def computeManagementClient = creds.computeManagementClient
+    VirtualNetworkClient networkClient = creds.networkClient
     def persistence = Mock(OracleServerGroupPersistence)
     def service = new DefaultOracleServerGroupService(persistence)
     def sg = new OracleServerGroup(
-      name: "foo-v001",
+      name: "scaling-v03",
       region: creds.region,
       zone: "ad1",
-      launchConfig: [
-        "availabilityDomain": "ad1",
-        "compartmentId"     : "ocid.compartment.123",
-        "imageId"           : "ocid.image.123",
-        "shape"             : "small",
-        "vpcId"             : "ocid.vcn.123",
-        "subnetId"          : "ocid.subnet.123",
-        "createdTime"       : System.currentTimeMillis()
-      ],
       targetSize: 3,
       credentials: creds,
       instancePoolId: "ocid.instancePool.123",
@@ -499,24 +558,77 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       .instancePool(InstancePool.builder().build()).build()
 
     when:
-    service.pollInstances(task, sg, 0, 1)
+    service.poll(task, sg, 1, 1)
 
     then:
     1 * computeManagementClient.getInstancePool(_) >> GetInstancePoolResponse.builder()
       .instancePool(InstancePool.builder().build()).build()
-    1 * computeManagementClient.listInstancePoolInstances(_) >>
-      ListInstancePoolInstancesResponse.builder().items([
-        InstanceSummary.builder().id('ocid.inst.1').state('Provisioning').timeCreated(new Date()).build(),
-        InstanceSummary.builder().id('ocid.inst.2').state('Provisioning').timeCreated(new Date()).build(),
-        InstanceSummary.builder().id('ocid.inst.3').state('Provisioning').timeCreated(new Date()).build()]).build()
+    2 * computeManagementClient.listInstancePoolInstances(_) >>
+      listInstances('ins.1') >> listInstances('ins.1','ins.2','ins.3')
     3 * computeClient.listVnicAttachments(_) >>
-      ListVnicAttachmentsResponse.builder().items([VnicAttachment.builder().vnicId('vnicId1').build()]).build() >>
-      ListVnicAttachmentsResponse.builder().items([VnicAttachment.builder().vnicId('vnicId2').build()]).build() >>
-      ListVnicAttachmentsResponse.builder().items([VnicAttachment.builder().vnicId('vnicId3').build()]).build()
+      listVnicAtt('vnic.1') >> listVnicAtt('vnic.2') >> listVnicAtt('vnic.3')
     3 * networkClient.getVnic(_) >>
-      GetVnicResponse.builder().vnic(Vnic.builder().privateIp('129.0.0.1').build()).build() >>
-      GetVnicResponse.builder().vnic(Vnic.builder().privateIp('129.0.0.2').build()).build() >>
-      GetVnicResponse.builder().vnic(Vnic.builder().privateIp('129.0.0.3').build()).build()
+      vnic('129.0.0.1') >> vnic('129.0.0.2') >> vnic('129.0.0.3')
+  }
+
+  def "poll instances 1 targeting 3"() {
+    setup:
+    def task = Mock(Task)
+    def creds = mockCreds()
+    def computeClient = creds.computeClient
+    def computeManagementClient = creds.computeManagementClient
+    VirtualNetworkClient networkClient = creds.networkClient
+    def persistence = Mock(OracleServerGroupPersistence)
+    def service = new DefaultOracleServerGroupService(persistence)
+    def instances = ['129.1.1.1', '129.1.1.2', '129.1.1.3']
+    def sg = new OracleServerGroup(
+      name: "scaling-v13",
+      region: creds.region,
+      zone: "ad1",
+      targetSize: 3,
+      credentials: creds,
+      instancePoolId: "ocid.instancePool.123",
+      disabled: false,
+      instances: instanceSet(instances[0])
+    )
+    GetInstancePoolResponse res = GetInstancePoolResponse.builder()
+      .instancePool(InstancePool.builder().build()).build()
+
+    when:
+    service.poll(task, sg, 1, 1)
+
+    then:
+    1 * computeManagementClient.getInstancePool(_) >> GetInstancePoolResponse.builder()
+      .instancePool(InstancePool.builder().build()).build()
+    3 * computeManagementClient.listInstancePoolInstances(_) >>
+      listInstances(instances[0]) >>
+      listInstances(instances[0], instances[1]) >>
+      listInstances(instances as String[])
+    2 * computeClient.listVnicAttachments(_) >>
+      listVnicAtt('vnic.2') >> listVnicAtt('vnic.3')
+    2 * networkClient.getVnic(_) >>
+      vnic('129.1.1.2') >>
+      vnic('129.1.1.3')
+  }
+
+
+  ListInstancePoolInstancesResponse listInstances(String... ids) {
+    ListInstancePoolInstancesResponse.builder().items(ids.collect{ id ->
+      InstanceSummary.builder().id(id).state('Provisioning').timeCreated(new Date()).build()
+    } as List).build()
+  }
+
+  ListVnicAttachmentsResponse listVnicAtt(String id) {
+    ListVnicAttachmentsResponse.builder().items([VnicAttachment.builder().vnicId(id).build()]).build()
+  }
+
+  GetVnicResponse vnic(String ip) {
+    GetVnicResponse.builder().vnic(Vnic.builder().privateIp(ip).build()).build()
+  }
+
+
+  Set<OracleInstance> instanceSet(String... addresses) {
+    addresses.collect {new OracleInstance(id: it, privateIp: it)} as Set
   }
 
   OracleNamedAccountCredentials mockCreds() {
@@ -554,8 +666,8 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
     def backends = ['10.1.20.1', '10.1.20.2', '10.1.20.3','10.1.20.4']
     def srvGroup = ['10.1.20.2', '10.1.20.4']
     def newGroup = ['10.1.20.2', '10.1.20.4', '10.1.20.5', '10.1.20.6']
-    Set<OracleInstance> oldSet = srvGroup.collect {new OracleInstance(id: it, privateIp: it)} as Set
-    Set<OracleInstance> newSet = newGroup.collect {new OracleInstance(id: it, privateIp: it)} as Set
+    Set<OracleInstance> oldSet = instanceSet(srvGroup as String[])
+    Set<OracleInstance> newSet = instanceSet(newGroup as String[])
 
     when:
     service.updateLoadBalancer(task, sg, oldSet, newSet)
@@ -600,8 +712,8 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
     def backends = ['10.1.20.1', '10.1.20.2', '10.1.20.3','10.1.20.4', '10.1.20.5', '10.1.20.6']
     def srvGroup = ['10.1.20.2', '10.1.20.4', '10.1.20.6']
     def newGroup = ['10.1.20.4']
-    Set<OracleInstance> oldSet = srvGroup.collect {new OracleInstance(id: it, privateIp: it)} as Set
-    Set<OracleInstance> newSet = newGroup.collect {new OracleInstance(id: it, privateIp: it)} as Set
+    Set<OracleInstance> oldSet = instanceSet(srvGroup as String[])
+    Set<OracleInstance> newSet = instanceSet(newGroup as String[])
 
     when:
     service.updateLoadBalancer(task, sg, oldSet, newSet)
@@ -646,8 +758,8 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
     def backends = ['10.1.20.1', '10.1.20.2', '10.1.20.3','10.1.20.4', '10.1.20.5', '10.1.20.6']
     def srvGroup = ['10.1.20.2', '10.1.20.4']
     def newGroup =  ['10.1.20.2', '10.1.20.4']
-    Set<OracleInstance> oldSet = srvGroup.collect {new OracleInstance(id: it, privateIp: it)} as Set
-    Set<OracleInstance> newSet = newGroup.collect {new OracleInstance(id: it, privateIp: it)} as Set
+    Set<OracleInstance> oldSet = instanceSet(srvGroup as String[])
+    Set<OracleInstance> newSet = instanceSet(newGroup as String[])
 
     when:
     service.updateLoadBalancer(task, sg, oldSet, newSet)

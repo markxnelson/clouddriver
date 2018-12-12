@@ -67,7 +67,7 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
       "vpcId"             : description.vpcId,
       "subnetId"          : description.subnetId,
       "sshAuthorizedKeys" : description.sshAuthorizedKeys,
-      "placements"        : description.placements?.collect {it.primarySubnetId +',' + it.availabilityDomain},
+//      "placements"        : description.placements?.collect {it.primarySubnetId +',' + it.availabilityDomain},
       "createdTime"       : System.currentTimeMillis()
     ]
     int targetSize = description.targetSize?: (description.capacity?.desired?:0)
@@ -81,6 +81,7 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
       targetSize: targetSize,
       credentials: description.credentials,
       loadBalancerId: description.loadBalancerId,
+      backendSetName: description.backendSetName,
       placements: description.placements
     )
     oracleServerGroupService.createServerGroup(task, sg)
@@ -99,7 +100,7 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
             allUp = true
             break
           }
-          task.updateStatus BASE_PHASE, "Waiting for serverGroup instances(${sgView.instanceCounts.up}) to get to Up(${sgView.instanceCounts.total}) state"
+          task.updateStatus BASE_PHASE, "Waiting for serverGroup instances(${sgView?.instanceCounts?.up}) to get to Up(${sgView?.instanceCounts?.total}) state"
           Thread.sleep(5000)
         }
         if (!allUp) {
@@ -123,10 +124,11 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
             }
           }
         }
+        oracleServerGroupService.updateServerGroup(sg)
+        oracleServerGroupService.updateLoadBalancer(task, sg, [] as Set, sg.instances)
+      } else {
+        oracleServerGroupService.poll(task, sg)
       }
-      sg.backendSetName = description.backendSetName
-      oracleServerGroupService.updateServerGroup(sg)
-      oracleServerGroupService.updateLoadBalancer(task, sg, [] as Set, sg.instances)
     }
     DeploymentResult deploymentResult = new DeploymentResult()
     deploymentResult.serverGroupNames = ["$region:$serverGroupName".toString()]

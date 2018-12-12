@@ -39,11 +39,10 @@ class OracleServerGroup {
   String cloudProvider
   String instancePoolId
   String instanceConfigurationId
+  List<CreateInstancePoolPlacementConfigurationDetails> placements
 
   @JsonIgnore
   OracleNamedAccountCredentials credentials
-  @JsonIgnore
-  List<CreateInstancePoolPlacementConfigurationDetails> placements
   @JsonIgnore
   InstancePool instancePool
 

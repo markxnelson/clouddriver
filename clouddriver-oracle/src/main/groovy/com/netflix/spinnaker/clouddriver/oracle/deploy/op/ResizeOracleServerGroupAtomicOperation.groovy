@@ -47,13 +47,16 @@ class ResizeOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
     def app = Names.parseName(description.serverGroupName).app
     task.updateStatus BASE_PHASE, "Resizing server group: " + description.serverGroupName
     def serverGroup = oracleServerGroupService.getServerGroup(description.credentials, app, description.serverGroupName)
-    int targetSize = description.targetSize?: (description.capacity?.desired?:0)
-    if (targetSize == serverGroup.instances.size()) {
+    int targetSize = description.targetSize()
+
+    System.out.println( '~~~  ????   targetSize:' + targetSize + ' insSize:' +  serverGroup?.instances?.size())
+
+    if (targetSize == serverGroup?.instances?.size()) {
       task.updateStatus BASE_PHASE, description.serverGroupName + " is already running the desired number of instances"
       return
     }
-    Set<String> oldGroup = serverGroup.instances.collect{it.privateIp} as Set<String>
-    Set<OracleInstance> oldInstances = serverGroup.instances.collect{it}
+    Set<OracleInstance> oldInstances = serverGroup.instances?.collect{it}?: [] as Set
+    Set<String> oldGroup = oldInstances.collect{it.privateIp} as Set<String>
 
     oracleServerGroupService.resizeServerGroup(task, description.credentials, description.serverGroupName, targetSize)
 
@@ -61,7 +64,7 @@ class ResizeOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
 
     if (serverGroup.loadBalancerId) {
       if (serverGroup.instancePoolId != null) {
-        //TODO
+        serverGroup.instances = oracleServerGroupService.poll(task, serverGroup)
       } else {
         // wait for instances to go into running state
         ServerGroup sgView
@@ -69,12 +72,12 @@ class ResizeOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
         boolean allUp = false
         while (!allUp && System.currentTimeMillis() < finishBy) {
           sgView = clusterProvider.getServerGroup(serverGroup.credentials.name, serverGroup.region, serverGroup.name)
-          if (sgView && (sgView.instanceCounts.up == sgView.instanceCounts.total) && (sgView.instanceCounts.total == description.capacity.desired)) {
+          if (sgView && (sgView.instanceCounts.up == sgView.instanceCounts.total) && (sgView.instanceCounts.total == targetSize)) {
             task.updateStatus BASE_PHASE, "All instances are Up"
             allUp = true
             break
           }
-          task.updateStatus BASE_PHASE, "Waiting for serverGroup instances(${sgView.instanceCounts.up}) to match desired total(${sgView.instanceCounts.total})"
+          task.updateStatus BASE_PHASE, "Waiting for serverGroup instances(${sgView?.instanceCounts?.up}) to match target size(${targetSize})"
           Thread.sleep(5000)
         }
         if (!allUp) {
@@ -100,10 +103,10 @@ class ResizeOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
           }
           newGroup << instance.privateIp
         }
+        //update serverGroup with IPs
+        oracleServerGroupService.updateServerGroup(serverGroup)
+        oracleServerGroupService.updateLoadBalancer(task, serverGroup, oldInstances, serverGroup.instances)
       }
-      //update serverGroup with IPs
-      oracleServerGroupService.updateServerGroup(serverGroup)
-      oracleServerGroupService.updateLoadBalancer(task, serverGroup, oldInstances, serverGroup.instances)
     }
     task.updateStatus BASE_PHASE, "Completed server group resize"
     return null

@@ -14,11 +14,14 @@ import com.netflix.spinnaker.clouddriver.data.task.TaskRepository
 import com.netflix.spinnaker.clouddriver.oracle.deploy.OracleWorkRequestPoller
 import com.netflix.spinnaker.clouddriver.oracle.deploy.description.DestroyOracleServerGroupDescription
 import com.netflix.spinnaker.clouddriver.oracle.model.Details
+import com.netflix.spinnaker.clouddriver.oracle.model.OracleServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.service.servergroup.OracleServerGroupService
 import com.netflix.spinnaker.clouddriver.orchestration.AtomicOperation
 import com.oracle.bmc.core.ComputeManagementClient
+import com.oracle.bmc.core.requests.DeleteInstanceConfigurationRequest
 import com.oracle.bmc.core.requests.ListInstancePoolsRequest
 import com.oracle.bmc.core.requests.TerminateInstancePoolRequest
+import com.oracle.bmc.core.responses.DeleteInstanceConfigurationResponse
 import com.oracle.bmc.core.responses.ListInstancePoolsResponse
 import com.oracle.bmc.core.responses.TerminateInstancePoolResponse
 import com.oracle.bmc.loadbalancer.model.BackendSet
@@ -46,12 +49,13 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
     this.description = description
   }
 
-  Void terminateInstancePool(List priorOutputs) {
+  Void terminateInstancePool(List priorOutputs, OracleServerGroup serverGroup) {
     ComputeManagementClient client = description.credentials.computeManagementClient
-    if (description.instancePoolId) {
+    if (serverGroup.instancePoolId) {
       TerminateInstancePoolRequest termReq =
-          TerminateInstancePoolRequest.builder().instancePoolId(description.instancePoolId).build()
+          TerminateInstancePoolRequest.builder().instancePoolId(serverGroup.instancePoolId).build()
       TerminateInstancePoolResponse termRes = client.terminateInstancePool(termReq)
+      task.updateStatus(BASE_PHASE, "TerminateInstancePoolResponse " + termRes.getOpcRequestId())
     } else {
       ListInstancePoolsRequest listReq = ListInstancePoolsRequest.builder()
           .compartmentId(description.credentials.compartmentId).build(); //TODO: displayName(desc.getServerGroupName())
@@ -66,14 +70,18 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
         }
       }
     }
-    return null;
+    if (serverGroup.instanceConfigurationId) {
+      DeleteInstanceConfigurationResponse res = client.deleteInstanceConfiguration(DeleteInstanceConfigurationRequest.builder()
+        .instanceConfigurationId(serverGroup.instanceConfigurationId).build())
+      task.updateStatus(BASE_PHASE, "DeleteInstanceConfigurationResponse " + res.getOpcRequestId())
+    }
   }
 
   @Override
   Void operate(List priorOutputs) {
     def app = Names.parseName(description.serverGroupName).app
-    task.updateStatus BASE_PHASE, "Destroying server group backend set ${description.serverGroupName} of ${app}"
-    def serverGroup = oracleServerGroupService.getServerGroup(description.credentials, app, description.serverGroupName)
+    task.updateStatus BASE_PHASE, "Destroying serverGroup ${description.serverGroupName} of ${app}"
+    OracleServerGroup serverGroup = oracleServerGroupService.getServerGroup(description.credentials, app, description.serverGroupName)
     LoadBalancer loadBalancer = null
     try {
       loadBalancer = serverGroup?.loadBalancerId? description.credentials.loadBalancerClient.getLoadBalancer(
@@ -85,6 +93,7 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
           throw e
         }
     }
+    task.updateStatus BASE_PHASE, "removing instances from LoadBalancer(${loadBalancer?.displayName}) BackendSet(${serverGroup?.backendSetName})"
     if (loadBalancer) {
       Set<String> toGo = serverGroup.instances.collect {it.privateIp} as Set
       try {
@@ -124,8 +133,8 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
     }
 
     task.updateStatus BASE_PHASE, "Destroying server group: " + description.serverGroupName
-    if (serverGroup?.launchConfig?.placements && serverGroup?.launchConfig?.placements.size() > 0) {
-      terminateInstancePool(priorOutputs)
+    if (serverGroup?.instancePoolId) {
+      terminateInstancePool(priorOutputs, serverGroup)
       oracleServerGroupService.deleteServerGroup(serverGroup)
     } else {
       oracleServerGroupService.destroyServerGroup(task, description.credentials, description.serverGroupName)

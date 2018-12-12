@@ -35,6 +35,8 @@ interface OracleServerGroupService {
 
   public void deleteServerGroup(OracleServerGroup sg)
 
+  public void poll(Task task, OracleServerGroup sg)
+
   public void updateLoadBalancer(Task task, OracleServerGroup serverGroup,
     Set<OracleInstance> oldInstances, Set<OracleInstance> newInstances)
 }

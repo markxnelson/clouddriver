@@ -25,8 +25,11 @@ import com.oracle.bmc.core.model.InstanceConfiguration
 import com.oracle.bmc.core.model.InstanceConfigurationCreateVnicDetails
 import com.oracle.bmc.core.model.InstanceConfigurationInstanceSourceViaImageDetails
 import com.oracle.bmc.core.model.InstanceConfigurationLaunchInstanceDetails
+import com.oracle.bmc.core.model.InstancePool
 import com.oracle.bmc.core.model.LaunchInstanceDetails
+import com.oracle.bmc.core.model.UpdateInstancePoolDetails
 import com.oracle.bmc.core.model.Vnic
+import com.oracle.bmc.core.model.InstancePool.LifecycleState
 import com.oracle.bmc.core.requests.CreateInstanceConfigurationRequest
 import com.oracle.bmc.core.requests.CreateInstancePoolRequest
 import com.oracle.bmc.core.requests.GetInstancePoolRequest
@@ -35,10 +38,13 @@ import com.oracle.bmc.core.requests.LaunchInstanceRequest
 import com.oracle.bmc.core.requests.ListInstancePoolInstancesRequest
 import com.oracle.bmc.core.requests.ListVnicAttachmentsRequest
 import com.oracle.bmc.core.requests.TerminateInstanceRequest
+import com.oracle.bmc.core.requests.UpdateInstancePoolRequest
 import com.oracle.bmc.core.responses.CreateInstanceConfigurationResponse
 import com.oracle.bmc.core.responses.CreateInstancePoolResponse
+import com.oracle.bmc.core.responses.GetInstancePoolResponse
 import com.oracle.bmc.core.responses.ListInstancePoolInstancesResponse
 import com.oracle.bmc.core.responses.ListVnicAttachmentsResponse
+import com.oracle.bmc.core.responses.UpdateInstancePoolResponse
 import com.oracle.bmc.loadbalancer.model.BackendDetails
 import com.oracle.bmc.loadbalancer.model.BackendSet
 import com.oracle.bmc.loadbalancer.model.LoadBalancer
@@ -59,7 +65,8 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
   private static final String DISABLE = "DISABLE_SERVER_GROUP"
   private static final String ENABLE = "ENABLE_SERVER_GROUP"
   private static final String UpdateLB = "UpdateLoadBalancer"
-  private static final int CreateInstancePoolTimeout = 30;
+  private static final int PollingInterval = 5000; //ms
+  private static final int PollingTimeout = 10; //minutes
 
   private final OracleServerGroupPersistence persistence;
 
@@ -100,7 +107,6 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
   void createServerGroup(Task task, OracleServerGroup sg) {
     if(sg.placements) {
       createInstancePool(task, sg)
-      pollInstances(task, sg)
     } else {
       createInstances(task, sg)
     }
@@ -168,22 +174,34 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
   @Override
   boolean resizeServerGroup(Task task, OracleNamedAccountCredentials creds, String serverGroupName, Integer targetSize) {
     def persistenceCtx = new OraclePersistenceContext(creds)
-    def serverGroup = persistence.getServerGroupByName(persistenceCtx, serverGroupName)
+    OracleServerGroup serverGroup = persistence.getServerGroupByName(persistenceCtx, serverGroupName)
     if (serverGroup != null) {
-      task.updateStatus RESIZE, "Found server group: $serverGroup.name resizing to $targetSize"
-      if (targetSize > serverGroup.targetSize) {
-        int numInstancesToCreate = targetSize - serverGroup.targetSize
-        task.updateStatus RESIZE, "Creating $numInstancesToCreate instances"
-        increase(task, serverGroup, targetSize)
-      } else if (serverGroup.targetSize > targetSize) {
-        int numInstancesToTerminate = serverGroup.targetSize - targetSize
-        task.updateStatus RESIZE, "Terminating $numInstancesToTerminate instances"
-        decrease(task, serverGroup, targetSize)
+      if (serverGroup.instancePoolId != null) {
+        ComputeManagementClient client = creds.computeManagementClient
+        String compartmentId = creds.compartmentId
+        UpdateInstancePoolDetails updateDetails = UpdateInstancePoolDetails.builder()
+          .instanceConfigurationId(serverGroup.instanceConfigurationId)
+          .placementConfigurations(serverGroup.placements.collect{Details.update(it)} as List)
+          .size(targetSize).build()
+        UpdateInstancePoolResponse res = client.updateInstancePool(UpdateInstancePoolRequest.builder()
+          .instancePoolId(serverGroup.instancePoolId).updateInstancePoolDetails(updateDetails).build())
       } else {
-        task.updateStatus RESIZE, "Already running the desired number of instances"
-        return true
+        task.updateStatus RESIZE, "Found server group: $serverGroup.name resizing to $targetSize"
+        if (targetSize > serverGroup.targetSize) {
+          int numInstancesToCreate = targetSize - serverGroup.targetSize
+          task.updateStatus RESIZE, "Creating $numInstancesToCreate instances"
+          increase(task, serverGroup, targetSize)
+        } else if (serverGroup.targetSize > targetSize) {
+          int numInstancesToTerminate = serverGroup.targetSize - targetSize
+          task.updateStatus RESIZE, "Terminating $numInstancesToTerminate instances"
+          decrease(task, serverGroup, targetSize)
+        } else {
+          task.updateStatus RESIZE, "Already running the desired number of instances"
+          return true
+        }
+        task.updateStatus RESIZE, "Updating persistent data for $serverGroup.name"
       }
-      task.updateStatus RESIZE, "Updating persistent data for $serverGroup.name"
+      serverGroup.targetSize = targetSize
       persistence.upsertServerGroup(serverGroup)
       return true
     } else {
@@ -347,21 +365,22 @@ class DefaultOracleServerGroupService implements OracleServerGroupService {
       .compartmentId(compartmentId).instanceConfigurationId(instanceConfiguration.id)
       .size(sg.targetSize).placementConfigurations(sg.placements).build()
 
-System.out.println( '~~~ creatingIP on sg.placements:' + sg.placements)
-System.out.println( '~~~   createInstancePoolDetails: ' + createInstancePoolDetails)
-
     CreateInstancePoolRequest request = CreateInstancePoolRequest.builder()
       .createInstancePoolDetails(createInstancePoolDetails).build()
     //TODO  com.oracle.bmc.model.BmcException: (400, LimitExceeded, false) Max number of instances available for shape VM.Standard2.1, will be exceeded for iad-ad-3 (0), iad-ad-2 (0)
     CreateInstancePoolResponse response = client.createInstancePool(request)
-    sg.instancePool = response.getInstancePool()
-    sg.instancePoolId = sg.instancePool.id
+    sg.instancePoolId = response.instancePool.id
+    sg.instancePool = response.instancePool
     updateServerGroup(sg)
+    //TODO what state? sg.instancePool = waitForInstancePool(task, sg, LifecycleState.Running)
   }
 
-  OracleServerGroup updateInstances(Task task, OracleServerGroup sg) {
-    Set<OracleInstance> existing = sg.instances
-    sg.instances = waitForInstances(task, sg)
+  InstancePool waitForInstancePool(Task task, OracleServerGroup sg, LifecycleState targetStates) {
+    GetInstancePoolRequest getPoolReq = GetInstancePoolRequest.builder().instancePoolId(sg.instancePoolId).build()
+    task.updateStatus(DEPLOY, "Waiting for InstancePool to get to $targetStates")
+    GetInstancePoolResponse poolRes =  sg.credentials.computeManagementClient.waiters.forInstancePool(getPoolReq, targetStates).execute()
+    task.updateStatus(DEPLOY, "InstancePool $sg.name lifecycleState $poolRes.instancePool.lifecycleState")
+    poolRes.instancePool
   }
 
   /* LifecycleState {
@@ -380,25 +399,21 @@ System.out.println( '~~~   createInstancePoolDetails: ' + createInstancePoolDeta
     state.equalsIgnoreCase("Starting")
   }
 
-  Set<OracleInstance> poolInstances(Task task, OracleServerGroup sg) {
-    poolInstances(task, sg, 5000, CreateInstancePoolTimeout)
+  void poll(Task task, OracleServerGroup sg) {
+    poll(task, sg, PollingInterval, PollingTimeout)
   }
 
-  Set<OracleInstance> pollInstances(Task task, OracleServerGroup sg,
-    int pollingIntervalMillis, int timeoutMinutes) {
+  void syncInstances(Task task, OracleServerGroup sg) {
     String compartmentId = sg.credentials.compartmentId
-    long finishBy = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(timeoutMinutes)
-    sg.instancePool = sg.credentials.computeManagementClient
-      .getInstancePool(GetInstancePoolRequest.builder().instancePoolId(sg.instancePoolId).build()).instancePool
-System.out.println( '~~~ sg.instancePool.size ' + sg.instancePool.size)
-System.out.println( '~~~ sg.targetSize ' +  sg.targetSize)
-    Set<OracleInstance> instances = []
-    while (instances.size() < sg.targetSize && System.currentTimeMillis() < finishBy) {
+    Set<OracleInstance> oldInstances = sg.instances?.collect{ it }?: [] as Set
+    Set<OracleInstance> newInstances = []
+    Set<OracleInstance> instaceCache = oldInstances.collect{ it }
+    try {
       ListInstancePoolInstancesResponse listRes = sg.credentials.computeManagementClient.listInstancePoolInstances(
         ListInstancePoolInstancesRequest.builder().compartmentId(compartmentId).instancePoolId(sg.instancePoolId).build())
       listRes.items.each { ins ->
         if (isGood(ins.state)) {
-          OracleInstance instance = sg.instances.find{ it.id == ins.id }
+          OracleInstance instance = instaceCache.find{ it.id == ins.id }
           if (instance == null) {
             instance = new OracleInstance (
               name: ins.displayName,
@@ -408,10 +423,11 @@ System.out.println( '~~~ sg.targetSize ' +  sg.targetSize)
               lifecycleState: ins.state,
               cloudProvider: OracleCloudProvider.ID,
               launchTime: ins.timeCreated.fastTime)
+            instaceCache << instance
           } else {
             instance.lifecycleState = ins.state
           }
-          instances << instance
+          newInstances << instance
           if (instance.privateIp == null) {
             ListVnicAttachmentsResponse vnicAttachRes = sg.credentials.computeClient
               .listVnicAttachments(ListVnicAttachmentsRequest.builder()
@@ -426,13 +442,49 @@ System.out.println( '~~~ sg.targetSize ' +  sg.targetSize)
           }
         }
       }
-      task.updateStatus DEPLOY, "${sg.name} currently has ${sg.instances.size()} instances up"
-      task.updateStatus DEPLOY, "Waiting for ${sg.name} serverGroup to get to ${sg.targetSize} Up instances"
-      Thread.sleep(pollingIntervalMillis)
+    } catch (BmcException e) {
+      if (e.statusCode != 404) {
+        throw e
+      }
     }
-//    updateServerGroup(sg)
-//    return sg
-    return instances
+    if (!addressesOf(newInstances).equals(addressesOf(oldInstances))) {
+      sg.instances = newInstances
+System.out.println( '~~~  updating   ' + sg.instances)
+      updateServerGroup(sg)
+      updateLoadBalancer(task, sg, oldInstances, newInstances)
+    }
+//    return newInstances
+  }
+
+  void poll(Task task, OracleServerGroup sg, int intervalMillis, int timeoutMinutes) {
+    String compartmentId = sg.credentials.compartmentId
+    long finishBy = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(timeoutMinutes)
+    sg.instancePool = sg.credentials.computeManagementClient
+      .getInstancePool(GetInstancePoolRequest.builder().instancePoolId(sg.instancePoolId).build()).instancePool
+
+    // This must work for both scaling up and down
+    int currentSize = addressesOf(sg.instances).size()
+
+    if (currentSize != sg.instancePool.size) {
+System.out.println( '~~~  syncing1   ' + sg.instances)
+      syncInstances(task, sg)
+System.out.println( '~~~  syncing2   ' + sg.instances)
+      currentSize = addressesOf(sg.instances).size()
+    }
+
+    while (currentSize != sg.targetSize && System.currentTimeMillis() < finishBy) {
+      syncInstances(task, sg)
+      currentSize = addressesOf(sg.instances).size()
+      task.updateStatus RESIZE, "${sg.name} currently has ${currentSize} instances up"
+
+
+System.out.println( '~~~  ?? currentSize  ' + currentSize + ' ?? targetSize ' + sg.targetSize)
+
+      if (currentSize != sg.targetSize) {
+        task.updateStatus RESIZE, "Waiting for ${sg.name} serverGroup(${currentSize}) to get to ${sg.targetSize} Up instances"
+        Thread.sleep(intervalMillis)
+      }
+    }
   }
 
   Set<String> addressesOf(Set<OracleInstance> instances) {
@@ -441,14 +493,19 @@ System.out.println( '~~~ sg.targetSize ' +  sg.targetSize)
 
   void updateLoadBalancer(Task task, OracleServerGroup serverGroup,
     Set<OracleInstance> oldInstances, Set<OracleInstance> newInstances) {
-    Set<String> newGroup = addressesOf(newInstances)
     Set<String> oldGroup = addressesOf(oldInstances)
+    Set<String> newGroup = addressesOf(newInstances)
+
+System.out.println( '~~~           oldGroup ' + oldGroup)
+System.out.println( '~~~           newGroup ' + newGroup)
+System.out.println( '~~~           newInsts ' + newInstances)
+
     if (newGroup.equals(oldGroup)) {
       return
     }
-    task.updateStatus UpdateLB, "Getting LoadBalancer details " + serverGroup?.loadBalancerId
     LoadBalancer loadBalancer = serverGroup?.loadBalancerId? serverGroup.credentials.loadBalancerClient.getLoadBalancer(
       GetLoadBalancerRequest.builder().loadBalancerId(serverGroup.loadBalancerId).build())?.getLoadBalancer() : null
+    task.updateStatus UpdateLB, "Updating LoadBalancer(${loadBalancer?.displayName}) BackendSet(${serverGroup?.backendSetName})"
     if (loadBalancer) {
       try {
         BackendSet backendSet = serverGroup.backendSetName? loadBalancer.backendSets.get(serverGroup.backendSetName) : null

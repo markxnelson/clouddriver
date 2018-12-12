@@ -8,11 +8,13 @@
  */
 package com.netflix.spinnaker.clouddriver.oracle.model;
 
+import com.oracle.bmc.core.model.CreateInstancePoolPlacementConfigurationDetails;
+import com.oracle.bmc.core.model.UpdateInstancePoolPlacementConfigurationDetails;
 import com.oracle.bmc.loadbalancer.model.Backend;
 import com.oracle.bmc.loadbalancer.model.BackendDetails;
-import com.oracle.bmc.loadbalancer.model.SSLConfiguration;
 import com.oracle.bmc.loadbalancer.model.HealthChecker;
 import com.oracle.bmc.loadbalancer.model.HealthCheckerDetails;
+import com.oracle.bmc.loadbalancer.model.SSLConfiguration;
 import com.oracle.bmc.loadbalancer.model.SSLConfigurationDetails;
 
 /**
@@ -29,7 +31,7 @@ public class Details {
       .port(backend.getPort())
       .weight(backend.getWeight()).build();
   }
-  
+
   public static HealthCheckerDetails of(HealthChecker healthChecker) {
     return HealthCheckerDetails.builder()
       .intervalInMillis(healthChecker.getIntervalInMillis())
@@ -41,11 +43,25 @@ public class Details {
       .timeoutInMillis(healthChecker.getTimeoutInMillis())
       .urlPath(healthChecker.getUrlPath()).build();
   }
-  
+
   public static SSLConfigurationDetails of(SSLConfiguration sslConfig) {
     return SSLConfigurationDetails.builder()
       .certificateName(sslConfig.getCertificateName())
       .verifyDepth(sslConfig.getVerifyDepth())
       .verifyPeerCertificate(sslConfig.getVerifyPeerCertificate()).build();
+  }
+
+  public static UpdateInstancePoolPlacementConfigurationDetails update(CreateInstancePoolPlacementConfigurationDetails placement) {
+    UpdateInstancePoolPlacementConfigurationDetails.Builder builder = UpdateInstancePoolPlacementConfigurationDetails.builder();
+    if (placement.getAvailabilityDomain() != null) {
+      builder.availabilityDomain(placement.getAvailabilityDomain());
+    }
+    if (placement.getPrimarySubnetId() != null) {
+      builder.primarySubnetId(placement.getPrimarySubnetId());
+    }
+    if (placement.getSecondaryVnicSubnets() != null) {
+      builder.secondaryVnicSubnets(placement.getSecondaryVnicSubnets());
+    }
+    return builder.build();
   }
 }
