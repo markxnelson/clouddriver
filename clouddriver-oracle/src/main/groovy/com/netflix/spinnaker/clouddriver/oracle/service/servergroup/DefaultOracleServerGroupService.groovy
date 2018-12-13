@@ -496,9 +496,9 @@ System.out.println( '~~~  ?? currentSize  ' + currentSize + ' ?? targetSize ' + 
     Set<String> oldGroup = addressesOf(oldInstances)
     Set<String> newGroup = addressesOf(newInstances)
 
-System.out.println( '~~~           oldGroup ' + oldGroup)
-System.out.println( '~~~           newGroup ' + newGroup)
-System.out.println( '~~~           newInsts ' + newInstances)
+System.out.println( '~~~?? oldGroup ' + oldGroup)
+System.out.println( '~~~?? newGroup ' + newGroup)
+System.out.println( '~~~?? newInsts ' + newInstances)
 
     if (newGroup.equals(oldGroup)) {
       return

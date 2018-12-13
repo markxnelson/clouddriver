@@ -100,7 +100,9 @@ class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeployDescrip
             allUp = true
             break
           }
-          task.updateStatus BASE_PHASE, "Waiting for serverGroup instances(${sgView?.instanceCounts?.up}) to get to Up(${sgView?.instanceCounts?.total}) state"
+          int currentSize = sgView?.instanceCounts?.up?:0
+          int totalSize = sgView?.instanceCounts?.total?: targetSize
+          task.updateStatus BASE_PHASE, "Waiting for serverGroup instances(${currentSize}) to get to Up(${totalSize}) state"
           Thread.sleep(5000)
         }
         if (!allUp) {

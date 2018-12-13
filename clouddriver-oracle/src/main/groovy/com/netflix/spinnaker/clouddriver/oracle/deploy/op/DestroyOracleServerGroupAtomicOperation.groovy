@@ -11,9 +11,7 @@ package com.netflix.spinnaker.clouddriver.oracle.deploy.op
 import com.netflix.frigga.Names
 import com.netflix.spinnaker.clouddriver.data.task.Task
 import com.netflix.spinnaker.clouddriver.data.task.TaskRepository
-import com.netflix.spinnaker.clouddriver.oracle.deploy.OracleWorkRequestPoller
 import com.netflix.spinnaker.clouddriver.oracle.deploy.description.DestroyOracleServerGroupDescription
-import com.netflix.spinnaker.clouddriver.oracle.model.Details
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.service.servergroup.OracleServerGroupService
 import com.netflix.spinnaker.clouddriver.orchestration.AtomicOperation
@@ -24,11 +22,8 @@ import com.oracle.bmc.core.requests.TerminateInstancePoolRequest
 import com.oracle.bmc.core.responses.DeleteInstanceConfigurationResponse
 import com.oracle.bmc.core.responses.ListInstancePoolsResponse
 import com.oracle.bmc.core.responses.TerminateInstancePoolResponse
-import com.oracle.bmc.loadbalancer.model.BackendSet
 import com.oracle.bmc.loadbalancer.model.LoadBalancer
-import com.oracle.bmc.loadbalancer.model.UpdateBackendSetDetails
 import com.oracle.bmc.loadbalancer.requests.GetLoadBalancerRequest
-import com.oracle.bmc.loadbalancer.requests.UpdateBackendSetRequest
 import com.oracle.bmc.model.BmcException
 import org.springframework.beans.factory.annotation.Autowired
 
@@ -95,41 +90,45 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
     }
     task.updateStatus BASE_PHASE, "removing instances from LoadBalancer(${loadBalancer?.displayName}) BackendSet(${serverGroup?.backendSetName})"
     if (loadBalancer) {
-      Set<String> toGo = serverGroup.instances.collect {it.privateIp} as Set
-      try {
-        BackendSet backendSet = serverGroup.backendSetName? loadBalancer.backendSets.get(serverGroup.backendSetName) : null
-        if (backendSet == null && loadBalancer.backendSets.size() == 1) {
-          backendSet = loadBalancer.backendSets.values().first();
-        }
-        if (backendSet) {
-          // remove serverGroup instances/IPs from the backendSet
-          def backends = backendSet.backends.findAll { !toGo.contains(it.ipAddress) } .collect { Details.of(it) }
-          UpdateBackendSetDetails.Builder details = UpdateBackendSetDetails.builder().backends(backends)
-          if (backendSet.sslConfiguration) {
-              details.sslConfiguration(Details.of(backendSet.sslConfiguration))
-          }
-          if (backendSet.sessionPersistenceConfiguration) {
-              details.sessionPersistenceConfiguration(backendSet.sessionPersistenceConfiguration)
-          }
-          if (backendSet.healthChecker) {
-              details.healthChecker(Details.of(backendSet.healthChecker))
-          }
-          if (backendSet.policy) {
-            details.policy(backendSet.policy)
-          }
-          UpdateBackendSetRequest updateBackendSet = UpdateBackendSetRequest.builder()
-            .loadBalancerId(serverGroup.loadBalancerId).backendSetName(backendSet.name)
-            .updateBackendSetDetails(details.build()).build()
-          def updateRes = description.credentials.loadBalancerClient.updateBackendSet(updateBackendSet)
-          OracleWorkRequestPoller.poll(updateRes.opcWorkRequestId, BASE_PHASE, task, description.credentials.loadBalancerClient)
-        }
-      } catch (BmcException e) {
-        if (e.statusCode == 404) {
-          task.updateStatus BASE_PHASE, "Backend set did not exist...continuing"
-        } else {
-          throw e
-        }
-      }
+      Set<OracleServerGroup> toGo = serverGroup.instances.collect{it} as Set
+      oracleServerGroupService.updateLoadBalancer(task, serverGroup, toGo, [] as Set)
+
+//      Set<String> toGo = serverGroup.instances.collect {it.privateIp} as Set
+//      try {
+//        BackendSet backendSet = serverGroup.backendSetName? loadBalancer.backendSets.get(serverGroup.backendSetName) : null
+//        if (backendSet == null && loadBalancer.backendSets.size() == 1) {
+//          backendSet = loadBalancer.backendSets.values().first();
+//        }
+//        if (backendSet) {
+//          // remove serverGroup instances/IPs from the backendSet
+//          def backends = backendSet.backends.findAll { !toGo.contains(it.ipAddress) } .collect { Details.of(it) }
+//          UpdateBackendSetDetails.Builder details = UpdateBackendSetDetails.builder().backends(backends)
+//          if (backendSet.sslConfiguration) {
+//              details.sslConfiguration(Details.of(backendSet.sslConfiguration))
+//          }
+//          if (backendSet.sessionPersistenceConfiguration) {
+//              details.sessionPersistenceConfiguration(backendSet.sessionPersistenceConfiguration)
+//          }
+//          if (backendSet.healthChecker) {
+//              details.healthChecker(Details.of(backendSet.healthChecker))
+//          }
+//          if (backendSet.policy) {
+//            details.policy(backendSet.policy)
+//          }
+//          UpdateBackendSetRequest updateBackendSet = UpdateBackendSetRequest.builder()
+//            .loadBalancerId(serverGroup.loadBalancerId).backendSetName(backendSet.name)
+//            .updateBackendSetDetails(details.build()).build()
+//          def updateRes = description.credentials.loadBalancerClient.updateBackendSet(updateBackendSet)
+//          OracleWorkRequestPoller.poll(updateRes.opcWorkRequestId, BASE_PHASE, task, description.credentials.loadBalancerClient)
+//        }
+//      } catch (BmcException e) {
+//        if (e.statusCode == 404) {
+//          task.updateStatus BASE_PHASE, "Backend set did not exist...continuing"
+//        } else {
+//          throw e
+//        }
+//      }
+
     }
 
     task.updateStatus BASE_PHASE, "Destroying server group: " + description.serverGroupName
