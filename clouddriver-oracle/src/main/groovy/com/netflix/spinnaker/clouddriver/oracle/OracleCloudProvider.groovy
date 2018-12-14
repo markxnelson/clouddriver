@@ -9,9 +9,8 @@
 package com.netflix.spinnaker.clouddriver.oracle
 
 import com.netflix.spinnaker.clouddriver.core.CloudProvider
-import org.springframework.stereotype.Component
-
 import java.lang.annotation.Annotation
+import org.springframework.stereotype.Component
 
 /**
  * Oracle declaration as a {@link CloudProvider}.
@@ -19,7 +18,7 @@ import java.lang.annotation.Annotation
 @Component
 class OracleCloudProvider implements CloudProvider {
 
-  static final String ID = "oracle"
+  public static final String ID = "oracle"
   final String id = ID
   final String displayName = ID
   final Class<Annotation> operationAnnotationType = OracleOperation

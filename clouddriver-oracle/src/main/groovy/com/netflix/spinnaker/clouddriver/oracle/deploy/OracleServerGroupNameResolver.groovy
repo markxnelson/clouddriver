@@ -29,6 +29,10 @@ class OracleServerGroupNameResolver extends AbstractServerGroupNameResolver {
     this.region = region
   }
 
+  public String qualifiedName(String appName, String stack, String detail) {
+    return combineAppStackDetail(appName, stack, detail)
+  }
+
   @Override
   String getPhase() {
     return PHASE
