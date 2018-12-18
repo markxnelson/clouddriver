@@ -47,6 +47,10 @@ class ResizeOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
     def app = Names.parseName(description.serverGroupName).app
     task.updateStatus BASE_PHASE, "Resizing server group: " + description.serverGroupName
     def serverGroup = oracleServerGroupService.getServerGroup(description.credentials, app, description.serverGroupName)
+    if (serverGroup == null) {
+      task.updateStatus BASE_PHASE, "serverGroup " + description.serverGroupName + " not found"
+      return
+    }
     int targetSize = description.targetSize()
 
     System.out.println( '~~~  ????   targetSize:' + targetSize + ' insSize:' +  serverGroup?.instances?.size())

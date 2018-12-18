@@ -92,43 +92,6 @@ class DestroyOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
     if (loadBalancer) {
       Set<OracleServerGroup> toGo = serverGroup.instances.collect{it} as Set
       oracleServerGroupService.updateLoadBalancer(task, serverGroup, toGo, [] as Set)
-
-//      Set<String> toGo = serverGroup.instances.collect {it.privateIp} as Set
-//      try {
-//        BackendSet backendSet = serverGroup.backendSetName? loadBalancer.backendSets.get(serverGroup.backendSetName) : null
-//        if (backendSet == null && loadBalancer.backendSets.size() == 1) {
-//          backendSet = loadBalancer.backendSets.values().first();
-//        }
-//        if (backendSet) {
-//          // remove serverGroup instances/IPs from the backendSet
-//          def backends = backendSet.backends.findAll { !toGo.contains(it.ipAddress) } .collect { Details.of(it) }
-//          UpdateBackendSetDetails.Builder details = UpdateBackendSetDetails.builder().backends(backends)
-//          if (backendSet.sslConfiguration) {
-//              details.sslConfiguration(Details.of(backendSet.sslConfiguration))
-//          }
-//          if (backendSet.sessionPersistenceConfiguration) {
-//              details.sessionPersistenceConfiguration(backendSet.sessionPersistenceConfiguration)
-//          }
-//          if (backendSet.healthChecker) {
-//              details.healthChecker(Details.of(backendSet.healthChecker))
-//          }
-//          if (backendSet.policy) {
-//            details.policy(backendSet.policy)
-//          }
-//          UpdateBackendSetRequest updateBackendSet = UpdateBackendSetRequest.builder()
-//            .loadBalancerId(serverGroup.loadBalancerId).backendSetName(backendSet.name)
-//            .updateBackendSetDetails(details.build()).build()
-//          def updateRes = description.credentials.loadBalancerClient.updateBackendSet(updateBackendSet)
-//          OracleWorkRequestPoller.poll(updateRes.opcWorkRequestId, BASE_PHASE, task, description.credentials.loadBalancerClient)
-//        }
-//      } catch (BmcException e) {
-//        if (e.statusCode == 404) {
-//          task.updateStatus BASE_PHASE, "Backend set did not exist...continuing"
-//        } else {
-//          throw e
-//        }
-//      }
-
     }
 
     task.updateStatus BASE_PHASE, "Destroying server group: " + description.serverGroupName

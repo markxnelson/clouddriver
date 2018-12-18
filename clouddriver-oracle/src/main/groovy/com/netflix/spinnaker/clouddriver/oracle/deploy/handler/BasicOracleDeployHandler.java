@@ -75,8 +75,7 @@ public class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeploy
     launchConfig.put("createdTime"       , System.currentTimeMillis());
 
     int targetSize = description.targetSize();
-task.updateStatus(BASE_PHASE, "JAVA JAVA JAVA JAVA JAVA Composing server group " + serverGroupName + " with " + targetSize + " instance(s)");
-    task.updateStatus(BASE_PHASE, "Composing server group " + serverGroupName + " with " + targetSize + " instance(s)");
+    task.updateStatus(BASE_PHASE, "Composing serverGroup " + serverGroupName + " with " + targetSize + " instance(s)");
 
     OracleServerGroup sg = new OracleServerGroup (
        serverGroupName,
@@ -91,7 +90,7 @@ task.updateStatus(BASE_PHASE, "JAVA JAVA JAVA JAVA JAVA Composing server group "
     );
 
     oracleServerGroupService.createServerGroup(task, sg);
-    task.updateStatus(BASE_PHASE, "Done creating server group " + serverGroupName);
+    task.updateStatus(BASE_PHASE, "Done creating serverGroup " + serverGroupName);
 
     if (description.getLoadBalancerId() != null) {
       if (description.getPlacements() == null || description.getPlacements().size() == 0) { //for non-instancePool

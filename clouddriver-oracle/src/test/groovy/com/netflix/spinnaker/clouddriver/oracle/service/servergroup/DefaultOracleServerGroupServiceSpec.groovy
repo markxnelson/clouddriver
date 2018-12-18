@@ -485,14 +485,13 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       instances: instanceSet(instances as String[])
     )
     GetInstancePoolResponse res = GetInstancePoolResponse.builder()
-      .instancePool(InstancePool.builder().build()).build()
+      .instancePool(InstancePool.builder().size(0).build()).build()
 
     when:
     service.poll(task, sg, 1, 1)
 
     then:
-    1 * computeManagementClient.getInstancePool(_) >> GetInstancePoolResponse.builder()
-      .instancePool(InstancePool.builder().build()).build()
+    1 * computeManagementClient.getInstancePool(_) >> res
     3 * computeManagementClient.listInstancePoolInstances(_) >>
       listInstances(instances as String[]) >> listInstances(instances[1]) >> listInstances()
     0 * computeClient.listVnicAttachments(_)
@@ -519,15 +518,13 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       disabled: false,
       instances: instanceSet(instances as String[])
     )
-    GetInstancePoolResponse res = GetInstancePoolResponse.builder()
-      .instancePool(InstancePool.builder().build()).build()
 
     when:
     service.poll(task, sg, 1, 1)
 
     then:
     1 * computeManagementClient.getInstancePool(_) >> GetInstancePoolResponse.builder()
-      .instancePool(InstancePool.builder().build()).build()
+      .instancePool(InstancePool.builder().size(1).build()).build()
     3 * computeManagementClient.listInstancePoolInstances(_) >>
       listInstances(instances as String[]) >>
       listInstances(instances[1], instances[2]) >>
@@ -562,7 +559,7 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
 
     then:
     1 * computeManagementClient.getInstancePool(_) >> GetInstancePoolResponse.builder()
-      .instancePool(InstancePool.builder().build()).build()
+      .instancePool(InstancePool.builder().size(3).build()).build()
     2 * computeManagementClient.listInstancePoolInstances(_) >>
       listInstances('ins.1') >> listInstances('ins.1','ins.2','ins.3')
     3 * computeClient.listVnicAttachments(_) >>
@@ -591,15 +588,13 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       disabled: false,
       instances: instanceSet(instances[0])
     )
-    GetInstancePoolResponse res = GetInstancePoolResponse.builder()
-      .instancePool(InstancePool.builder().build()).build()
 
     when:
     service.poll(task, sg, 1, 1)
 
     then:
     1 * computeManagementClient.getInstancePool(_) >> GetInstancePoolResponse.builder()
-      .instancePool(InstancePool.builder().build()).build()
+      .instancePool(InstancePool.builder().size(3).build()).build()
     3 * computeManagementClient.listInstancePoolInstances(_) >>
       listInstances(instances[0]) >>
       listInstances(instances[0], instances[1]) >>
@@ -654,13 +649,14 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
     def loadBalancerClient = creds.loadBalancerClient
     def persistence = Mock(OracleServerGroupPersistence)
     def service = new DefaultOracleServerGroupService(persistence)
-    GroovySpy(OracleWorkRequestPoller, global: true)
+    OracleWorkRequestPoller.poller = Mock(OracleWorkRequestPoller)
     def sg = new OracleServerGroup(
       name: "sg-v001",
       region: creds.region,
       targetSize: 2,
       credentials: creds,
       loadBalancerId: "ocid.lb.oc1..12345",
+      backendSetName: "sg1BackendSet",
       disabled: false
     )
     def backends = ['10.1.20.1', '10.1.20.2', '10.1.20.3','10.1.20.4']
@@ -689,7 +685,8 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       assert updatedBackendSet.contains('10.1.20.6')
       UpdateBackendSetResponse.builder().opcWorkRequestId("wr1").build()
     }
-    1 * OracleWorkRequestPoller.poll("wr1", _, _, loadBalancerClient) >> null
+    1 * OracleWorkRequestPoller.poller.wait("wr1", _, _, loadBalancerClient) >> null
+//  1 * OracleWorkRequestPoller.       poll("wr1", _, _, loadBalancerClient) >> null
   }
 
   def "updateLoadBalancer BackendSet from 3 to 1"() {
@@ -700,13 +697,15 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
     def loadBalancerClient = creds.loadBalancerClient
     def persistence = Mock(OracleServerGroupPersistence)
     def service = new DefaultOracleServerGroupService(persistence)
-    GroovySpy(OracleWorkRequestPoller, global: true)
+//    GroovySpy(OracleWorkRequestPoller, global: true)
+    OracleWorkRequestPoller.poller = Mock(OracleWorkRequestPoller)
     def sg = new OracleServerGroup(
       name: "sg-v001",
       region: creds.region,
       targetSize: 3,
       credentials: creds,
       loadBalancerId: "ocid.lb.oc1..12345",
+      backendSetName: "sg1BackendSet",
       disabled: false
     )
     def backends = ['10.1.20.1', '10.1.20.2', '10.1.20.3','10.1.20.4', '10.1.20.5', '10.1.20.6']
@@ -735,7 +734,8 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       assert updatedBackendSet.contains('10.1.20.4')
       UpdateBackendSetResponse.builder().opcWorkRequestId("wr1").build()
     }
-    1 * OracleWorkRequestPoller.poll("wr1", _, _, loadBalancerClient) >> null
+//    1 * OracleWorkRequestPoller.poll("wr1", _, _, loadBalancerClient) >> null
+    1 * OracleWorkRequestPoller.poller.wait("wr1", _, _, loadBalancerClient) >> null
   }
 
   def "updateLoadBalancer BackendSet same size"() {
@@ -746,13 +746,15 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
     def loadBalancerClient = creds.loadBalancerClient
     def persistence = Mock(OracleServerGroupPersistence)
     def service = new DefaultOracleServerGroupService(persistence)
-    GroovySpy(OracleWorkRequestPoller, global: true)
+//    GroovySpy(OracleWorkRequestPoller, global: true)
+    OracleWorkRequestPoller.poller = Mock(OracleWorkRequestPoller)
     def sg = new OracleServerGroup(
       name: "sg-v001",
       region: creds.region,
       targetSize: 3,
       credentials: creds,
       loadBalancerId: "ocid.lb.oc1..12345",
+      backendSetName: "sg1BackendSet",
       disabled: false
     )
     def backends = ['10.1.20.1', '10.1.20.2', '10.1.20.3','10.1.20.4', '10.1.20.5', '10.1.20.6']

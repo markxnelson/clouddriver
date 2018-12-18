@@ -290,6 +290,12 @@ public class OracleServerGroup {
     this.launchConfig = launchConfig;
   }
 
+
+  public String launchConfig(String name) {
+    Object obj = (launchConfig != null) ? launchConfig.get(name) : null;
+    return (obj != null)? ((obj instanceof String) ? (String)obj : obj.toString()) : null;
+  }
+
   public Set<String> getSecurityGroups() {
     return securityGroups;
   }
