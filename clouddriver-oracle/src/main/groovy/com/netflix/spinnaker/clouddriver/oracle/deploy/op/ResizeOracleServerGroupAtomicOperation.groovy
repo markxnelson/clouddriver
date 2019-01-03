@@ -52,15 +52,16 @@ class ResizeOracleServerGroupAtomicOperation implements AtomicOperation<Void> {
       return
     }
     int targetSize = description.targetSize()
+    Set<OracleInstance> oldInstances = serverGroup.instances?.collect{it}?: [] as Set
+    Set<String> oldGroup = oldInstances.findAll{it.privateIp != null}.collect{it.privateIp} as Set<String>
+    int currentSize = oldGroup.size();
 
-    System.out.println( '~~~  ????   targetSize:' + targetSize + ' insSize:' +  serverGroup?.instances?.size())
+    System.out.println( '~~~  ????   targetSize:' + targetSize + ' insSize:' +  currentSize)
 
-    if (targetSize == serverGroup?.instances?.size()) {
+    if (targetSize == currentSize) {
       task.updateStatus BASE_PHASE, description.serverGroupName + " is already running the desired number of instances"
       return
     }
-    Set<OracleInstance> oldInstances = serverGroup.instances?.collect{it}?: [] as Set
-    Set<String> oldGroup = oldInstances.collect{it.privateIp} as Set<String>
 
     oracleServerGroupService.resizeServerGroup(task, description.credentials, description.serverGroupName, targetSize)
 

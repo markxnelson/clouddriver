@@ -9,7 +9,6 @@
 package com.netflix.spinnaker.clouddriver.oracle.service.servergroup
 
 import com.netflix.spinnaker.clouddriver.data.task.Task
-import com.netflix.spinnaker.clouddriver.oracle.model.OracleInstance
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleServerGroup
 import com.netflix.spinnaker.clouddriver.oracle.security.OracleNamedAccountCredentials
 
@@ -38,5 +37,5 @@ interface OracleServerGroupService {
   public void poll(Task task, OracleServerGroup sg)
 
   public void updateLoadBalancer(Task task, OracleServerGroup serverGroup,
-    Set<OracleInstance> oldInstances, Set<OracleInstance> newInstances)
+    Set<String> oldInstances, Set<String> newInstances)
 }

@@ -28,7 +28,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -135,8 +137,10 @@ public class BasicOracleDeployHandler implements DeployHandler<BasicOracleDeploy
             }
           });
         });
+        Set<String> newIpAddressses = sg.getInstances().stream()
+          .filter(it -> it.getPrivateIp() != null).map(it -> it.getPrivateIp()).collect(Collectors.toSet());
         oracleServerGroupService.updateServerGroup(sg);
-        oracleServerGroupService.updateLoadBalancer(task, sg, emptySet(), sg.getInstances());
+        oracleServerGroupService.updateLoadBalancer(task, sg, emptySet(), newIpAddressses);
       } else {
         oracleServerGroupService.poll(task, sg);
       }

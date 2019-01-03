@@ -123,9 +123,9 @@ public class DefaultOracleServerGroupService implements OracleServerGroupService
   public List<String> listServerGroupNamesByClusterName(OracleNamedAccountCredentials creds, String clusterName) {
     OraclePersistenceContext persistenceCtx = new OraclePersistenceContext(creds);
     List<String> sgNames = persistence.listServerGroupNames(persistenceCtx);
+    //groovy: sgNames.findAll { clusterName == Names.parseName(it)?.cluster }
     return sgNames.stream()
         .filter(name -> clusterName.equals(clusterOf(name))).collect(Collectors.toList());
-//    return sgNames.findAll { clusterName == Names.parseName(it)?.cluster }
   }
 
   @Override
@@ -134,9 +134,8 @@ public class DefaultOracleServerGroupService implements OracleServerGroupService
     List<String> sgNames = persistence.listServerGroupNames(persistenceCtx);
     List<String> sgNamesInApp = sgNames.stream()
         .filter(it -> application.equals(appOf(it))).collect(Collectors.toList());
-//        sgNames.findAll { application == Names.parseName(it)?.app }
+    //groovy: sgNames.findAll { application == Names.parseName(it)?.app }
     Optional<String> foundName = sgNamesInApp.stream().filter(it -> it.equals(name)).findFirst();
-//        sgNamesInApp.find { name == it }
     if (foundName.isPresent()) {
       return persistence.getServerGroupByName(persistenceCtx, name);
     }
@@ -496,14 +495,14 @@ public class DefaultOracleServerGroupService implements OracleServerGroupService
   void syncInstances(Task task, OracleServerGroup sg) {
     String compartmentId = sg.getCredentials().getCompartmentId();
     Set<OracleInstance> oldInstances = sg.getInstances().stream().collect(Collectors.toSet());
+    Set<String> oldIpAddresses = addressesOf(oldInstances);
     Set<OracleInstance> newInstances = new HashSet<>();
-    Set<OracleInstance> instaceCache = oldInstances.stream().collect(Collectors.toSet());
     try {
       ListInstancePoolInstancesResponse listRes = sg.getCredentials().getComputeManagementClient().listInstancePoolInstances(
         ListInstancePoolInstancesRequest.builder().compartmentId(compartmentId).instancePoolId(sg.getInstancePoolId()).build());
       listRes.getItems().forEach( ins -> {
         if (isGood(ins.getState())) {
-          OracleInstance instance = find(instaceCache, ins.getId());
+          OracleInstance instance = find(oldInstances, ins.getId());
           Instance.LifecycleState lifecycleState = Instance.LifecycleState.valueOf(ins.getState());
           if (instance == null) {
             instance = new OracleInstance();
@@ -514,7 +513,7 @@ public class DefaultOracleServerGroupService implements OracleServerGroupService
             instance.setLifecycleState(lifecycleState);
             instance.setCloudProvider(OracleCloudProvider.ID);
             instance.setLaunchTime(ins.getTimeCreated().getTime());
-            instaceCache.add(instance);
+            oldInstances.add(instance);
           } else {
             instance.setLifecycleState(lifecycleState);
           }
@@ -522,6 +521,7 @@ public class DefaultOracleServerGroupService implements OracleServerGroupService
           if (instance.getPrivateIp() == null) {
             String privateIp = getPrivateIp(sg, ins.getId());
             if (privateIp != null) {
+              //this may also update the address of existing oldInstances
               instance.setPrivateIp(privateIp);
             }
           }
@@ -532,15 +532,14 @@ public class DefaultOracleServerGroupService implements OracleServerGroupService
         throw e;
       }
     }
-    if (!addressesOf(newInstances).equals(addressesOf(oldInstances))) {
+    if (!addressesOf(newInstances).equals(oldIpAddresses)) {
       sg.setInstances(newInstances);
       updateServerGroup(sg);
-      updateLoadBalancer(task, sg, oldInstances, newInstances);
+      updateLoadBalancer(task, sg, oldIpAddresses, addressesOf(newInstances));
     }
   }
 
   void poll(Task task, OracleServerGroup sg, int intervalMillis, int timeoutMinutes) {
-    String compartmentId = sg.getCredentials().getCompartmentId();
     long finishBy = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(timeoutMinutes);
     InstancePool instancePool = sg.getCredentials().getComputeManagementClient().getInstancePool(
         GetInstancePoolRequest.builder().instancePoolId(sg.getInstancePoolId()).build()).getInstancePool();
@@ -556,9 +555,9 @@ public class DefaultOracleServerGroupService implements OracleServerGroupService
     }
 
     while (currentSize != sg.getTargetSize() && System.currentTimeMillis() < finishBy) {
-      task.updateStatus(RESIZE, "InstancePool " + sg.getName() + " has " + currentSize + " instances up targeting " + sg.getTargetSize());
       syncInstances(task, sg);
       currentSize = addressesOf(sg.getInstances()).size();
+      task.updateStatus(RESIZE, "InstancePool " + sg.getName() + " has " + currentSize + " instances up targeting " + sg.getTargetSize());
       if (currentSize != sg.getTargetSize()) {
         task.updateStatus(RESIZE, "Waiting for InstancePool " + sg.getName() + "(" + currentSize + ") to have " + sg.getTargetSize() + " Up instances");
         try {
@@ -571,10 +570,9 @@ public class DefaultOracleServerGroupService implements OracleServerGroupService
 
   @Override
   public void updateLoadBalancer(Task task, OracleServerGroup serverGroup,
-    Set<OracleInstance> oldInstances, Set<OracleInstance> newInstances) {
-    Set<String> oldGroup = addressesOf(oldInstances);
-    Set<String> newGroup = addressesOf(newInstances);
-    if (serverGroup.getBackendSetName()  == null || newGroup.equals(oldGroup)) {
+      Set<String> oldIpAddresses, Set<String> newIpAddresses
+    ) {
+    if (serverGroup.getBackendSetName()  == null || newIpAddresses.equals(oldIpAddresses)) {
       return;
     }
     LoadBalancer loadBalancer = null;
@@ -589,19 +587,28 @@ public class DefaultOracleServerGroupService implements OracleServerGroupService
       return;
     }
     task.updateStatus(UpdateLB, "Updating LoadBalancer(" + loadBalancer.getDisplayName() + ") " +
-        "BackendSet(" + serverGroup.getBackendSetName() + ") from " + oldGroup + " to " + newGroup );
+        "BackendSet(" + serverGroup.getBackendSetName() + ") from " + oldIpAddresses + " to " + newIpAddresses );
     try {
       BackendSet backendSet = loadBalancer.getBackendSets().get(serverGroup.getBackendSetName());
       if (backendSet == null ) {
         task.updateStatus(UpdateLB, "BackendSet(" + serverGroup.getBackendSetName() + ") did not exist...continuing");
         return;
       }
+      int currentBackendSetSize = backendSet.getBackends().size();
       // existing backends but not in the oldGroup(to be removed)
       List<BackendDetails> backends = backendSet.getBackends().stream()
-        .filter( it -> !oldGroup.contains(it.getIpAddress()) )
+        .filter( it -> !oldIpAddresses.contains(it.getIpAddress()) )
         .map( it -> Details.of(it) ).collect(Collectors.toList());
-      for(String ip : newGroup) {
-        backends.add(BackendDetails.builder().ipAddress(ip).port(backendSet.getHealthChecker().getPort()).build());
+      boolean backendChanged = (currentBackendSetSize != backends.size());
+      for(String ip : newIpAddresses) {
+        if (!backends.stream().filter(b -> b.getIpAddress() == ip).findFirst().isPresent()) {
+          backends.add(BackendDetails.builder().ipAddress(ip).port(backendSet.getHealthChecker().getPort()).build());
+          backendChanged = true;
+        }
+      }
+      if (!backendChanged) {
+        task.updateStatus(UpdateLB, "BackendSet(" + serverGroup.getBackendSetName() + ") did not change...continuing");
+        return;
       }
       UpdateBackendSetDetails.Builder details = UpdateBackendSetDetails.builder().backends(backends);
       if (backendSet.getSslConfiguration() != null) {
@@ -619,12 +626,12 @@ public class DefaultOracleServerGroupService implements OracleServerGroupService
       UpdateBackendSetRequest updateBackendSet = UpdateBackendSetRequest.builder()
         .loadBalancerId(serverGroup.getLoadBalancerId()).backendSetName(backendSet.getName())
         .updateBackendSetDetails(details.build()).build();
-      task.updateStatus(UpdateLB, "Updating backendSet ${backendSet.name}");
+      task.updateStatus(UpdateLB, "Updating backendSet " + backendSet.getName());
       UpdateBackendSetResponse updateRes = serverGroup.getCredentials().getLoadBalancerClient().updateBackendSet(updateBackendSet);
       OracleWorkRequestPoller.poll(updateRes.getOpcWorkRequestId(), UpdateLB, task, serverGroup.getCredentials().getLoadBalancerClient());
    } catch (BmcException e) {
      if (e.getStatusCode() == 404) {
-        task.updateStatus(UpdateLB, "BackendSet ${serverGroup.backendSetName} did not exist...continuing");
+        task.updateStatus(UpdateLB, "BackendSet " + serverGroup.getBackendSetName() + " did not exist...continuing");
       } else {
         throw e;
       }

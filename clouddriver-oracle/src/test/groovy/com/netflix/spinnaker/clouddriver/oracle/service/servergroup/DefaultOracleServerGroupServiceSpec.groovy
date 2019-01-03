@@ -660,13 +660,13 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       disabled: false
     )
     def backends = ['10.1.20.1', '10.1.20.2', '10.1.20.3','10.1.20.4']
-    def srvGroup = ['10.1.20.2', '10.1.20.4']
-    def newGroup = ['10.1.20.2', '10.1.20.4', '10.1.20.5', '10.1.20.6']
-    Set<OracleInstance> oldSet = instanceSet(srvGroup as String[])
-    Set<OracleInstance> newSet = instanceSet(newGroup as String[])
+    def srvGroup = ['10.1.20.2', '10.1.20.4']  as Set
+    def newGroup = ['10.1.20.2', '10.1.20.4', '10.1.20.5', '10.1.20.6'] as Set
+//    Set<OracleInstance> oldSet = instanceSet(srvGroup as String[])
+//    Set<OracleInstance> newSet = instanceSet(newGroup as String[])
 
     when:
-    service.updateLoadBalancer(task, sg, oldSet, newSet)
+    service.updateLoadBalancer(task, sg, srvGroup, newGroup)
 
     then:
     1 * loadBalancerClient.getLoadBalancer(_) >> GetLoadBalancerResponse.builder()
@@ -709,13 +709,13 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       disabled: false
     )
     def backends = ['10.1.20.1', '10.1.20.2', '10.1.20.3','10.1.20.4', '10.1.20.5', '10.1.20.6']
-    def srvGroup = ['10.1.20.2', '10.1.20.4', '10.1.20.6']
-    def newGroup = ['10.1.20.4']
-    Set<OracleInstance> oldSet = instanceSet(srvGroup as String[])
-    Set<OracleInstance> newSet = instanceSet(newGroup as String[])
+    def srvGroup = ['10.1.20.2', '10.1.20.4', '10.1.20.6'] as Set
+    def newGroup = ['10.1.20.4'] as Set
+//    Set<OracleInstance> oldSet = instanceSet(srvGroup as String[])
+//    Set<OracleInstance> newSet = instanceSet(newGroup as String[])
 
     when:
-    service.updateLoadBalancer(task, sg, oldSet, newSet)
+    service.updateLoadBalancer(task, sg, srvGroup, newGroup)
 
     then:
     1 * loadBalancerClient.getLoadBalancer(_) >> GetLoadBalancerResponse.builder()
@@ -758,16 +758,74 @@ class DefaultOracleServerGroupServiceSpec extends Specification {
       disabled: false
     )
     def backends = ['10.1.20.1', '10.1.20.2', '10.1.20.3','10.1.20.4', '10.1.20.5', '10.1.20.6']
-    def srvGroup = ['10.1.20.2', '10.1.20.4']
-    def newGroup =  ['10.1.20.2', '10.1.20.4']
-    Set<OracleInstance> oldSet = instanceSet(srvGroup as String[])
-    Set<OracleInstance> newSet = instanceSet(newGroup as String[])
+    def srvGroup = ['10.1.20.2', '10.1.20.4']  as Set
+    def newGroup =  ['10.1.20.2', '10.1.20.4']  as Set
+//    Set<OracleInstance> oldSet = instanceSet(srvGroup as String[])
+//    Set<OracleInstance> newSet = instanceSet(newGroup as String[])
 
     when:
-    service.updateLoadBalancer(task, sg, oldSet, newSet)
+    service.updateLoadBalancer(task, sg, srvGroup, newGroup)
 
     then:
     0 * loadBalancerClient.getLoadBalancer(_)
     0 * loadBalancerClient.updateBackendSet(_)
   }
+
+  def "sync existing 3 instances with 2 new Addresses"() {
+    setup:
+    def task = Mock(Task)
+    def creds = mockCreds()
+    def computeClient = creds.computeClient
+    VirtualNetworkClient networkClient = creds.networkClient
+    def loadBalancerClient = creds.loadBalancerClient
+    def computeManagementClient = creds.computeManagementClient
+    def persistence = Mock(OracleServerGroupPersistence)
+    def service = new DefaultOracleServerGroupService(persistence)
+//    GroovySpy(OracleWorkRequestPoller, global: true)
+    OracleWorkRequestPoller.poller = Mock(OracleWorkRequestPoller)
+    def srvGroup = [null, '129.1.20.1', null]
+//    def srvGroup = ['129.1.20.1', '129.1.20.2', '129.1.20.3']
+    def sg = new OracleServerGroup(
+      name: "sg-v003",
+      region: creds.region,
+      targetSize: 3,
+      credentials: creds,
+      loadBalancerId: "ocid.lb.oc1..12333",
+      backendSetName: "sg1BackendSet",
+      instances: [
+        new OracleInstance(id: 'x'),
+        new OracleInstance(id: 'y', privateIp: '129.1.20.2'),
+        new OracleInstance(id: 'z') ] as Set,
+      disabled: false
+    )
+//    Set<OracleInstance> oldSet = instanceSet(srvGroup as String[])
+//    Set<OracleInstance> newSet = instanceSet(newGroup as String[])
+
+    when:
+    service.syncInstances(task, sg)
+
+    then:
+    1 * computeManagementClient.listInstancePoolInstances(_) >>
+      listInstances('x', 'y', 'z')
+    2 * computeClient.listVnicAttachments(_) >>
+      listVnicAtt('vnic.1') >> listVnicAtt('vnic.3')
+    2 * networkClient.getVnic(_) >>
+      vnic('129.1.20.1') >> vnic('129.1.20.3')
+    1 * loadBalancerClient.getLoadBalancer(_)>> GetLoadBalancerResponse.builder()
+      .loadBalancer(LoadBalancer.builder()
+      .backendSets(["sg1BackendSet": BackendSet.builder()
+      .healthChecker(HealthChecker.builder().build())
+      .backends([Backend.builder().ipAddress('129.1.20.2').build()]).build()]).build()).build()
+    1 * loadBalancerClient.updateBackendSet(_) >> { args ->
+      UpdateBackendSetRequest req = (UpdateBackendSetRequest) args[0]
+      def updatedBackendSet = req.updateBackendSetDetails.backends.collect {it.ipAddress}
+      assert updatedBackendSet.size() == 3
+      assert updatedBackendSet.contains('129.1.20.1')
+      assert updatedBackendSet.contains('129.1.20.2')
+      assert updatedBackendSet.contains('129.1.20.3')
+      UpdateBackendSetResponse.builder().opcWorkRequestId("wr1").build()
+    }
+    1 * OracleWorkRequestPoller.poller.wait("wr1", _, _, loadBalancerClient) >> null
+  }
+
 }
