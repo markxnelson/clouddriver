@@ -17,5 +17,5 @@ import groovy.transform.Immutable
 class OracleSecurityGroupSummary implements SecurityGroupSummary {
   String name
   String id
-  String network
+  String vcnId
 }

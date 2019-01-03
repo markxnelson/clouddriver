@@ -171,7 +171,7 @@ class OracleSecurityGroupProviderSpec extends Specification {
     def name = "Sec Group $num"
     def ocid = "ocid.seclist.$num"
     def sl = SecurityList.builder().id(ocid).displayName(name).vcnId("ocid.vcn.123").ingressSecurityRules(
-      [IngressSecurityRule.builder().protocol("tcp").tcpOptions(
+      [IngressSecurityRule.builder().isStateless(false).protocol("tcp").tcpOptions(
         TcpOptions.builder().destinationPortRange(
           PortRange.builder().min(80).max(80).build()
         ).build()

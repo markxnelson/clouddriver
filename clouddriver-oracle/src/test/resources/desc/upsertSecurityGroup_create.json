@@ -1,0 +1,66 @@
+[
+  {
+    "upsertSecurityGroup": {
+      "securityGroupName": "testName",
+      "vcnId": "ocid1.vcn.oc1.iad.aaaaaaaau6n2ekz5zisihitvjfijzad7vb4e22xkswo4ctm5ndzxmj4d4n3q",
+      "inboundRules": [
+        {
+          "class": "com.netflix.spinnaker.clouddriver.oracle.model.OracleSecurityRule",
+          "stateless": false,
+          "protocol": "TCP",
+          "type": "CIDR_BLOCK",
+          "typeDetail": "0.0.0.0/0",
+          "sourcePortRange": {
+            "startPort": 80,
+            "endPort": 81
+          },
+          "destinationPortRange": {
+            "startPort": 8080,
+            "endPort": 8081
+          }
+        }
+      ],
+      "outboundRules": [
+        {
+          "class": "com.netflix.spinnaker.clouddriver.oracle.model.OracleSecurityRule",
+          "stateless": true,
+          "protocol": "UDP",
+          "type": "SERVICE_CIDR_BLOCK",
+          "typeDetail": "testService",
+          "sourcePortRange": {
+            "startPort": 90,
+            "endPort": 91
+          },
+          "destinationPortRange": {
+            "startPort": 9080,
+            "endPort": 9081
+          }
+        }
+      ],
+      "credentials": {
+        "cloudProvider": "oracle",
+        "name": null,
+        "environment": null,
+        "accountType": null,
+        "compartmentId": "testCompartmentId",
+        "userId": null,
+        "fingerprint": null,
+        "sshPrivateKeyFilePath": null,
+        "privateKeyPassphrase": null,
+        "tenancyId": null,
+        "region": null,
+        "requiredGroupMembership": null,
+        "regions": null,
+        "computeClient": null,
+        "networkClient": null,
+        "objectStorageClient": null,
+        "identityClient": null,
+        "loadBalancerClient": null,
+        "permissions": null,
+        "skin": null,
+        "providerVersion": null,
+        "accountId": null
+      }
+    }
+  }
+]

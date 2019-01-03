@@ -14,10 +14,10 @@ import com.netflix.spinnaker.cats.cache.CacheData
 import com.netflix.spinnaker.cats.cache.RelationshipCacheFilter
 import com.netflix.spinnaker.clouddriver.model.SecurityGroupProvider
 import com.netflix.spinnaker.clouddriver.model.securitygroups.Rule
-import com.netflix.spinnaker.clouddriver.model.securitygroups.SecurityGroupRule
 import com.netflix.spinnaker.clouddriver.oracle.OracleCloudProvider
 import com.netflix.spinnaker.clouddriver.oracle.cache.Keys
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleSecurityGroup
+import com.netflix.spinnaker.clouddriver.oracle.model.OracleSecurityRule
 import com.oracle.bmc.core.model.SecurityList
 import groovy.util.logging.Slf4j
 import org.springframework.beans.factory.annotation.Autowired
@@ -84,19 +84,12 @@ class OracleSecurityGroupProvider implements SecurityGroupProvider<OracleSecurit
     Map<String, String> parts = Keys.parse(cacheData.id)
 
     def ruleTransformer = {
-      // TODO: Support UDP/ICMP
-      def ranges = []
-      if (it?.tcpOptions?.destinationPortRange) {
-        ranges << new Rule.PortRange(startPort: it.tcpOptions.destinationPortRange.min, endPort: it.tcpOptions.destinationPortRange.max)
-      } else {
-        return null
-      }
-      return new SecurityGroupRule(protocol: "TCP", portRanges: new TreeSet<Rule.PortRange>(ranges))
+      return OracleSecurityRule.transform(it)
     }
 
-    def inRules = includeRules ? secList.ingressSecurityRules.collect(ruleTransformer) : []
+    Set<OracleSecurityRule> inRules = includeRules ? secList.ingressSecurityRules.collect(ruleTransformer) : []
     inRules.removeAll { it == null }
-    def outRules = includeRules ? secList.egressSecurityRules.collect(ruleTransformer) : []
+    Set<OracleSecurityRule> outRules = includeRules ? secList.egressSecurityRules.collect(ruleTransformer) : []
     outRules.removeAll { it == null }
 
     return new OracleSecurityGroup(
@@ -107,9 +100,9 @@ class OracleSecurityGroupProvider implements SecurityGroupProvider<OracleSecurit
       description: secList.displayName,
       accountName: parts.account,
       region: parts.region,
-      network: secList.vcnId,
-      inboundRules: inRules as Set<SecurityGroupRule>,
-      outboundRules: outRules as Set<SecurityGroupRule>
+      vcnId: secList.vcnId,
+      inboundRules: inRules,
+      outboundRules: outRules
     )
   }
 
