@@ -9,17 +9,22 @@
 
 package com.netflix.spinnaker.clouddriver.oracle.deploy.description;
 
+import com.google.common.collect.ImmutableList;
 import com.netflix.spinnaker.clouddriver.oracle.model.OracleSecurityRule;
+import com.netflix.spinnaker.clouddriver.security.resources.ApplicationNameable;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
  * Description for creating security groups with rules
  */
-public class UpsertOracleSecurityGroupDescription extends AbstractOracleCredentialsDescription {
+public class UpsertOracleSecurityGroupDescription extends AbstractOracleCredentialsDescription
+  implements ApplicationNameable {
   private String securityGroupId;
   private String securityGroupName;
   private String vcnId;
+  private String application;
   private List<OracleSecurityRule> inboundRules;
   private List<OracleSecurityRule> outboundRules;
 
@@ -62,4 +67,18 @@ public class UpsertOracleSecurityGroupDescription extends AbstractOracleCredenti
   public void setOutboundRules(List<OracleSecurityRule> outboundRules) {
     this.outboundRules = outboundRules;
   }
+
+  public String getApplication() {
+    return this.application;
+  }
+
+  public void setApplication(final String application) {
+    this.application = application;
+  }
+
+  @Override
+  public Collection<String> getApplications() {
+    return ImmutableList.of(application);
+  }
+
 }
