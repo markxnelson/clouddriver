@@ -11,7 +11,6 @@ package com.netflix.spinnaker.clouddriver.oracle.model
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.netflix.spinnaker.clouddriver.model.SecurityGroup
 import com.netflix.spinnaker.clouddriver.model.SecurityGroupSummary
-import com.netflix.spinnaker.clouddriver.model.securitygroups.Rule
 import com.netflix.spinnaker.clouddriver.oracle.OracleCloudProvider
 import com.netflix.spinnaker.moniker.Moniker
 import groovy.transform.Immutable
@@ -27,15 +26,16 @@ class OracleSecurityGroup implements SecurityGroup {
   final String application
   final String accountName
   final String region
-  final String network
-  final Set<Rule> inboundRules
-  final Set<Rule> outboundRules
+  final String vcnId
+  final Set<String> subnetIds
+  final Set<OracleIngressSecurityRule> inboundRules
+  final Set<OracleEgressSecurityRule> outboundRules
 
   void setMoniker(Moniker _ignored) {}
 
   @Override
   SecurityGroupSummary getSummary() {
-    new OracleSecurityGroupSummary(name: name, id: id, network: network)
+    new OracleSecurityGroupSummary(name: name, id: id, vcnId: vcnId)
   }
 }
 

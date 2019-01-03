@@ -9,13 +9,24 @@
 
 package com.netflix.spinnaker.clouddriver.oracle.deploy.validator
 
-import org.springframework.validation.Errors
 import com.netflix.spinnaker.clouddriver.deploy.DescriptionValidator
-import com.netflix.spinnaker.clouddriver.orchestration.VersionedCloudProviderOperation
+import com.oracle.bmc.OCID
+import org.springframework.validation.Errors
 
 abstract class StandardOracleAttributeValidator<T> extends DescriptionValidator<T> {
 
   protected String context
+
+  def validateOCID(Errors errors, String value, String attribute) {
+    if (!value) {
+      errors.rejectValue(attribute, "${context}.${attribute}.empty")
+      return false
+    }
+    if (!OCID.isValid(value)) {
+      errors.rejectValue(attribute, "${context}.${attribute}.notOCID");
+    }
+    return true
+  }
 
   def validateNotEmptyString(Errors errors, String value, String attribute) {
     if (!value) {

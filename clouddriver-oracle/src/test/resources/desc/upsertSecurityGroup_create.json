@@ -1,0 +1,76 @@
+[
+  {
+    "upsertSecurityGroup": {
+      "application": "testApp",
+      "stack": "dev",
+      "detail": "fw",
+      "vpcId": "ocid1.vcn.oc1.iad.aaaaaaaau6n2ekz5zisihitvjfijzad7vb4e22xkswo4ctm5ndzxmj4d4n3q",
+      "inboundRules": [
+        {
+          "class": "com.netflix.spinnaker.clouddriver.oracle.model.OracleIngressSecurityRule",
+          "stateless": false,
+          "protocol": "TCP",
+          "sourceType": "CIDR_BLOCK",
+          "source": "0.0.0.0/0",
+          "tcpOptions": {
+            "sourcePortRange": {
+              "min": 80,
+              "max": 81
+            },
+            "destinationPortRange": {
+              "min": 8080,
+              "max": 8081
+            }
+          }
+        }
+      ],
+      "outboundRules": [
+        {
+          "class": "com.netflix.spinnaker.clouddriver.oracle.model.OracleEgressSecurityRule",
+          "stateless": true,
+          "protocol": "UDP",
+          "destinationType": "SERVICE_CIDR_BLOCK",
+          "destination": "testService",
+          "udpOptions": {
+            "sourcePortRange": {
+              "min": 90,
+              "max": 91
+            },
+            "destinationPortRange": {
+              "min": 9080,
+              "max": 9081
+            }
+          }
+        }
+      ],
+      "subnetIds": [
+        "ocid1.subnet.oc1.iad.aaaaaaaaqsodjryopkdbhw7revjt4imoxarqxishrff7xfvxuvfmn2mbs6ba",
+        "ocid1.subnet.oc1.iad.aaaaaaaaqsodjryopkdbhw7revjt4imoxarqxishrff7xfvxuvfmn2mbs6bb"
+      ],
+      "credentials": {
+        "cloudProvider": "oracle",
+        "name": null,
+        "environment": null,
+        "accountType": null,
+        "compartmentId": "testCompartmentId",
+        "userId": null,
+        "fingerprint": null,
+        "sshPrivateKeyFilePath": null,
+        "privateKeyPassphrase": null,
+        "tenancyId": null,
+        "region": null,
+        "requiredGroupMembership": null,
+        "regions": null,
+        "computeClient": null,
+        "networkClient": null,
+        "objectStorageClient": null,
+        "identityClient": null,
+        "loadBalancerClient": null,
+        "permissions": null,
+        "skin": null,
+        "providerVersion": null,
+        "accountId": null
+      }
+    }
+  }
+]
