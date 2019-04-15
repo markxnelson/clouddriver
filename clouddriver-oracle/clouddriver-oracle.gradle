@@ -47,6 +47,7 @@ task unpackSdk(type: Sync) {
   exclude "**/jsr305*.jar"
   exclude "**/json-smart*.jar"
   exclude "**/oci-java-sdk-full-shaded-*.jar"
+  exclude "**/nimbus-jose-jwt*.jar"
 }
 
 task cleanSdk(type: Delete) {
